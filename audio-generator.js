@@ -21,6 +21,11 @@ class AudioGenerator {
         return buffer;
     }
 
+    // 生成单频音调（与generateSineWave相同）
+    generateSingleTone(frequency, duration, amplitude = 0.5) {
+        return this.generateSineWave(frequency, duration, amplitude);
+    }
+
     // 生成复合音调（多个频率混合）
     generateComplexTone(frequencies, duration, amplitude = 0.3) {
         const length = this.sampleRate * duration;

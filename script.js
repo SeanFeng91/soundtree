@@ -1,3 +1,5 @@
+import { RodVibrator } from './RodVibration.js'; // 导入
+
 class SoundTree {
     constructor() {
         this.scene = null;
@@ -6,6 +8,7 @@ class SoundTree {
         this.controls = null;
         this.rods = [];
         this.sphere = null;
+        this.clock = new THREE.Clock(); // 添加 Clock
         
         // 音频相关
         this.audioContext = null;
@@ -127,8 +130,15 @@ class SoundTree {
             const phi = Math.acos(-1 + (2 * i) / this.rodCount);
             const theta = Math.sqrt(this.rodCount * Math.PI) * phi;
             
-            // 杆子长度基于频率索引，低频杆子更长
-            const baseLength = this.maxRodHeight - (i / this.rodCount) * (this.maxRodHeight - this.minRodHeight);
+            // 杆子长度基于频率索引，低频杆子更长，采用非线性映射
+            let factor = 0;
+            if (this.rodCount > 1) {
+                const p = i / (this.rodCount - 1); // 归一化索引 (0 to 1)
+                factor = Math.sqrt(p); // 非线性因子
+            } else if (this.rodCount === 1) {
+                factor = 0; // 单杆情况，取最长
+            }
+            const baseLength = this.maxRodHeight - factor * (this.maxRodHeight - this.minRodHeight);
             
             // 杆子几何体
             const rodGeometry = new THREE.CylinderGeometry(0.05, 0.08, baseLength, 8);
@@ -160,11 +170,10 @@ class SoundTree {
             // 设置组的位置为球面上的固定点
             rodGroup.position.copy(new THREE.Vector3(x, y, z));
             
-            // 计算杆子应该指向的目标点（球心外侧）
-            const targetPoint = new THREE.Vector3().addVectors(rodGroup.position, direction);
-            
             // 让杆子组朝向正确的方向（从球心向外）
-            rodGroup.lookAt(targetPoint);
+            const yAxis = new THREE.Vector3(0, 1, 0); // 圆柱体默认沿Y轴
+            const quaternion = new THREE.Quaternion().setFromUnitVectors(yAxis, direction);
+            rodGroup.quaternion.copy(quaternion);
             
             rodGroup.castShadow = true;
             rodGroup.receiveShadow = true;
@@ -176,14 +185,7 @@ class SoundTree {
                 direction: direction.clone(),
                 frequencyIndex: i,
                 rod: rod,
-                originalRotation: rodGroup.rotation.clone(),
-                // 物理属性
-                angularVelocityX: 0,
-                angularVelocityZ: 0,
-                currentAngleX: 0,
-                currentAngleZ: 0,
-                damping: 0.95, // 阻尼系数，越小阻尼越大
-                springiness: 0.1 // 回弹力
+                vibrator: new RodVibrator(rod, 0.05, 0.08, baseLength) // 创建振动器实例
             };
             
             this.rods.push(rodGroup);
@@ -211,7 +213,7 @@ class SoundTree {
             this.audioGenerator.audioContext = this.audioContext;
             
             this.analyser = this.audioContext.createAnalyser();
-            this.analyser.fftSize = 256;
+            this.analyser.fftSize = 2048;
             this.analyser.smoothingTimeConstant = 0.8;
             
             const bufferLength = this.analyser.frequencyBinCount;
@@ -342,6 +344,8 @@ class SoundTree {
         if (!this.analyser || !this.dataArray || !this.isPlaying) return;
 
         this.analyser.getByteFrequencyData(this.dataArray);
+        const deltaTime = this.clock.getDelta();
+        const totalTime = this.clock.getElapsedTime();
 
         // 更新杆子的振动
         for (let i = 0; i < this.rods.length && i < this.dataArray.length; i++) {
@@ -350,42 +354,16 @@ class SoundTree {
             const frequencyValue = this.dataArray[i] / 255; // 归一化到0-1
             
             // 音频冲击力（只在有音频时产生冲击）
-            const impulseStrength = frequencyValue * 0.3; // 冲击强度
-            const maxImpulse = Math.PI / 20; // 最大冲击角度
+            const impulseStrength = frequencyValue * 0.1; // 调整冲击强度
             
-            // 当有足够强的音频信号时，给杆子一个冲击
-            if (frequencyValue > 0.1) {
-                const impulseX = (Math.random() - 0.5) * impulseStrength * maxImpulse;
-                const impulseZ = (Math.random() - 0.5) * impulseStrength * maxImpulse;
-                
-                // 添加到角速度
-                userData.angularVelocityX += impulseX;
-                userData.angularVelocityZ += impulseZ;
+            if (frequencyValue > 0.05) { // 调整阈值
+                userData.vibrator.applyImpulse(impulseStrength);
             }
             
-            // 物理模拟：弹簧阻尼系统
-            // 计算回弹力（试图回到原始位置）
-            const restoreForceX = -userData.currentAngleX * userData.springiness;
-            const restoreForceZ = -userData.currentAngleZ * userData.springiness;
+            // 调用振动器的更新方法
+            userData.vibrator.update(deltaTime, totalTime);
             
-            // 更新角速度（考虑回弹力）
-            userData.angularVelocityX += restoreForceX;
-            userData.angularVelocityZ += restoreForceZ;
-            
-            // 应用阻尼
-            userData.angularVelocityX *= userData.damping;
-            userData.angularVelocityZ *= userData.damping;
-            
-            // 更新角度
-            userData.currentAngleX += userData.angularVelocityX;
-            userData.currentAngleZ += userData.angularVelocityZ;
-            
-            // 应用旋转
-            rodGroup.rotation.copy(userData.originalRotation);
-            rodGroup.rotateX(userData.currentAngleX);
-            rodGroup.rotateZ(userData.currentAngleZ);
-            
-            // 更新颜色亮度
+            // 更新颜色亮度 (基于原始杆子网格的材质)
             const hue = (i / this.rods.length) * 360;
             const lightness = 0.4 + frequencyValue * 0.6;
             userData.rod.material.color.setHSL(hue / 360, 0.8, lightness);
