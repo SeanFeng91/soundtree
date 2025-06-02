@@ -293,6 +293,12 @@ class MainController {
             });
         }
 
+        if (this.ui.playAudioBtn) {
+            this.ui.playAudioBtn.addEventListener('click', () => {
+                this.playProcessedAudio();
+            });
+        }
+
         // 声音生成
         if (this.ui.generateSoundBtn) {
             this.ui.generateSoundBtn.addEventListener('click', () => {
@@ -303,6 +309,23 @@ class MainController {
         if (this.ui.playSoundBtn) {
             this.ui.playSoundBtn.addEventListener('click', () => {
                 this.playSound();
+            });
+        }
+
+        // 声音生成器滑块事件
+        if (this.ui.genFreqSlider) {
+            this.ui.genFreqSlider.addEventListener('input', (e) => {
+                if (this.ui.genFreqValue) {
+                    this.ui.genFreqValue.textContent = e.target.value + 'Hz';
+                }
+            });
+        }
+
+        if (this.ui.durationSlider) {
+            this.ui.durationSlider.addEventListener('input', (e) => {
+                if (this.ui.durationValue) {
+                    this.ui.durationValue.textContent = e.target.value + 's';
+                }
             });
         }
     }
@@ -358,6 +381,21 @@ class MainController {
             this.ui.dampingSlider.value = this.currentConfig.dampingRatio;
             if (this.ui.dampingValue) {
                 this.ui.dampingValue.textContent = this.currentConfig.dampingRatio;
+            }
+        }
+
+        // 设置声音生成器的初始值
+        if (this.ui.genFreqSlider) {
+            this.ui.genFreqSlider.value = 440; // 默认440Hz
+            if (this.ui.genFreqValue) {
+                this.ui.genFreqValue.textContent = '440Hz';
+            }
+        }
+
+        if (this.ui.durationSlider) {
+            this.ui.durationSlider.value = 1; // 默认1秒
+            if (this.ui.durationValue) {
+                this.ui.durationValue.textContent = '1s';
             }
         }
 
@@ -575,7 +613,19 @@ class MainController {
         const duration = parseFloat(this.ui.durationSlider?.value || 1);
         
         console.log(`生成声音: ${frequency}Hz, ${duration}s`);
-        this.audioProcessor.generateTone(frequency, duration);
+        
+        try {
+            this.audioProcessor.generateTone(frequency, duration);
+            console.log('声音生成成功');
+            
+            // 启用播放按钮
+            if (this.ui.playSoundBtn) {
+                this.ui.playSoundBtn.disabled = false;
+            }
+        } catch (error) {
+            console.error('声音生成失败:', error);
+            alert('声音生成失败: ' + error.message);
+        }
     }
 
     /**
@@ -583,7 +633,71 @@ class MainController {
      */
     playSound() {
         console.log('播放生成的声音');
-        this.audioProcessor.playGeneratedSound();
+        
+        try {
+            if (!this.audioProcessor.generatedAudioBuffer) {
+                console.warn('没有生成的音频可播放，请先生成声音');
+                alert('请先生成声音');
+                return;
+            }
+            
+            this.audioProcessor.playGeneratedSound();
+            console.log('开始播放生成的声音');
+        } catch (error) {
+            console.error('播放生成声音失败:', error);
+            alert('播放失败: ' + error.message);
+        }
+    }
+
+    /**
+     * 播放处理后的音频文件
+     */
+    playProcessedAudio() {
+        console.log('播放处理后的音频');
+        
+        try {
+            if (!this.audioProcessor) {
+                console.error('audioProcessor未初始化');
+                alert('音频处理器未初始化');
+                return;
+            }
+
+            if (!this.audioProcessor.audioBuffer) {
+                console.warn('没有处理过的音频可播放，请先选择并处理音频文件');
+                alert('请先选择并处理音频文件');
+                return;
+            }
+            
+            console.log('AudioContext状态:', this.audioProcessor.audioContext.state);
+            console.log('AudioBuffer信息:', {
+                duration: this.audioProcessor.audioBuffer.duration,
+                sampleRate: this.audioProcessor.audioBuffer.sampleRate,
+                numberOfChannels: this.audioProcessor.audioBuffer.numberOfChannels
+            });
+            
+            // 检查AudioContext状态
+            if (this.audioProcessor.audioContext.state === 'suspended') {
+                console.log('AudioContext处于暂停状态，正在恢复...');
+                this.audioProcessor.audioContext.resume().then(() => {
+                    console.log('AudioContext已恢复，开始播放音频');
+                    this.audioProcessor.playCurrentAudio((success) => {
+                        console.log('音频播放结束');
+                    });
+                }).catch(error => {
+                    console.error('AudioContext恢复失败:', error);
+                    alert('音频系统启动失败: ' + error.message);
+                });
+            } else {
+                this.audioProcessor.playCurrentAudio((success) => {
+                    console.log('音频播放结束');
+                });
+            }
+            
+            console.log('开始播放处理后的音频');
+        } catch (error) {
+            console.error('播放处理后音频失败:', error);
+            alert('播放失败: ' + error.message);
+        }
     }
 
     /**

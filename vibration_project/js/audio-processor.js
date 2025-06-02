@@ -189,38 +189,48 @@ class AudioProcessor {
         console.log('[AudioProcessor.playAudioBuffer] 开始播放指定的 audioBuffer。');
         if (!this.audioContext) {
             console.error('[AudioProcessor.playAudioBuffer] AudioContext 未初始化!');
-            return;
+            return false;
         }
         if (!audioBuffer) {
             console.error('[AudioProcessor.playAudioBuffer] 传入的 audioBuffer 为 null!');
-            return;
+            return false;
         }
+
+        console.log('[AudioProcessor.playAudioBuffer] AudioContext 状态:', this.audioContext.state);
+        console.log('[AudioProcessor.playAudioBuffer] AudioBuffer 详情:', {
+            duration: audioBuffer.duration,
+            sampleRate: audioBuffer.sampleRate,
+            numberOfChannels: audioBuffer.numberOfChannels,
+            length: audioBuffer.length
+        });
 
         if (this.isPlaying) {
             console.log('[AudioProcessor.playAudioBuffer] 当前有音频正在播放，先停止旧的。');
             this.stopAudio();
         }
 
-        this.sourceNode = this.audioContext.createBufferSource();
-        this.sourceNode.buffer = audioBuffer;
-        this.sourceNode.connect(this.audioContext.destination);
-        console.log('[AudioProcessor.playAudioBuffer] sourceNode 已创建并连接。');
-        
-        this.sourceNode.onended = () => {
-            console.log('[AudioProcessor.playAudioBuffer] sourceNode onended 事件触发。');
-            this.isPlaying = false;
-            if (typeof onEnded === 'function') {
-                onEnded();
-            }
-        };
-        
         try {
+            this.sourceNode = this.audioContext.createBufferSource();
+            this.sourceNode.buffer = audioBuffer;
+            this.sourceNode.connect(this.audioContext.destination);
+            console.log('[AudioProcessor.playAudioBuffer] sourceNode 已创建并连接。');
+            
+            this.sourceNode.onended = () => {
+                console.log('[AudioProcessor.playAudioBuffer] sourceNode onended 事件触发。');
+                this.isPlaying = false;
+                if (typeof onEnded === 'function') {
+                    onEnded();
+                }
+            };
+            
             this.sourceNode.start();
             this.isPlaying = true;
-            console.log('[AudioProcessor.playAudioBuffer] sourceNode.start() 已调用。');
+            console.log('[AudioProcessor.playAudioBuffer] sourceNode.start() 已调用，播放开始。');
+            return true;
         } catch (e) {
             console.error('[AudioProcessor.playAudioBuffer] sourceNode.start() 失败:', e);
             this.isPlaying = false; // 确保状态正确
+            return false;
         }
     }
 
@@ -246,6 +256,18 @@ class AudioProcessor {
         if (this.generatedAudioBuffer) {
             this.playAudioBuffer(this.generatedAudioBuffer, onEnded);
         }
+    }
+
+    /**
+     * 生成单音调（generateSineWave的便捷方法）
+     * @param {number} frequency - 频率 (Hz)
+     * @param {number} duration - 持续时间 (秒)
+     * @param {number} amplitude - 幅度 (0-1，默认0.5)
+     * @returns {AudioBuffer} 生成的音频缓冲区
+     */
+    generateTone(frequency, duration, amplitude = 0.5) {
+        console.log(`[AudioProcessor.generateTone] 生成音调: ${frequency}Hz, ${duration}s, 幅度: ${amplitude}`);
+        return this.generateSineWave(frequency, duration, amplitude);
     }
 
     /**
