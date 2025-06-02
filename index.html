@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声音树 - 音频可视化</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            overflow: hidden;
+        }
+
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            min-width: 300px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            color: #fff;
+            text-align: center;
+            font-size: 24px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .file-button {
+            display: block;
+            padding: 10px 15px;
+            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .file-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .default-tracks {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .track-button {
+            padding: 8px 12px;
+            background: linear-gradient(45deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .track-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .play-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .play-button {
+            padding: 10px 20px;
+            background: linear-gradient(45deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .play-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .play-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .volume-slider {
+            width: 100px;
+        }
+
+        .info {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 200;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-container"></div>
+        
+        <div id="controls">
+            <h1>🌳 声音树</h1>
+            
+            <div class="control-group">
+                <label>上传音频文件:</label>
+                <div class="file-input-wrapper">
+                    <input type="file" id="audioFile" class="file-input" accept="audio/*">
+                    <label for="audioFile" class="file-button">选择音频文件</label>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>或选择生成的音频:</label>
+                <div class="default-tracks">
+                    <button class="track-button" data-type="sweep">频率扫描 (20Hz-2000Hz)</button>
+                    <button class="track-button" data-type="complex">复合音调</button>
+                    <button class="track-button" data-type="beat">节拍音</button>
+                    <button class="track-button" data-type="harmonic">和弦音</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <div class="play-controls">
+                    <button id="playButton" class="play-button" disabled>播放</button>
+                    <button id="pauseButton" class="play-button" disabled>暂停</button>
+                    <button id="stopButton" class="play-button" disabled>停止</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <div class="volume-control">
+                    <label>音量:</label>
+                    <input type="range" id="volumeSlider" class="volume-slider" min="0" max="1" step="0.1" value="0.5">
+                    <span id="volumeValue">50%</span>
+                </div>
+            </div>
+
+            <div class="info">
+                <strong>使用说明:</strong><br>
+                • 上传音频文件或选择生成的音频<br>
+                • 点击播放按钮开始音频可视化<br>
+                • 3D声音树会根据音频频率产生振动<br>
+                • 不同长度的杆子对应不同的频率范围<br>
+                • 使用鼠标拖拽可以旋转查看3D场景
+            </div>
+        </div>
+
+        <div id="loading" class="hidden">
+            <div class="spinner"></div>
+            <p>正在处理音频...</p>
+        </div>
+    </div>
+
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- 控制器 -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- 音频生成器 -->
+    <script src="audio-generator.js"></script>
+    <!-- 主脚本 -->
+    <script src="script.js"></script>
+</body>
+</html> 
