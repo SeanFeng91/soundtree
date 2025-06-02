@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多杆件振动模拟系统</title>
+    <!-- <link rel="stylesheet" href="css/local-styles.css"> -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 可以在这里添加特定于此页面的额外样式 */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.3s ease-out;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #error-message {
+            color: red;
+            background-color: #ffe0e0;
+            border: 1px solid red;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            display: none; /* 初始隐藏 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <p id="loading-status" class="mt-3 text-gray-700">正在加载系统...</p>
+    </div>
+
+    <div id="error-message"></div>
+
+    <div class="container mx-auto p-4">
+        <header class="mb-6">
+            <h1 class="text-3xl font-bold text-center text-gray-800">多杆件振动模拟系统</h1>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 左侧控制面板 -->
+            <div class="lg:col-span-1 space-y-6">
+                <!-- 杆件配置 -->
+                <div class="card">
+                    <h2 class="card-header">杆件配置</h2>
+                    <div class="p-4 space-y-3">
+                        <div>
+                            <label for="rodCount" class="label">杆件数量: <span id="rodCountValue">10根</span></label>
+                            <input type="range" id="rodCount" min="1" max="50" value="10" class="slider">
+                        </div>
+                        <div>
+                            <label for="startLength" class="label">初始长度: <span id="startLengthValue">20mm</span></label>
+                            <input type="range" id="startLength" min="10" max="200" value="20" step="5" class="slider">
+                        </div>
+                        <div>
+                            <label for="lengthStep" class="label">长度步进: <span id="lengthStepValue">10mm</span></label>
+                            <input type="range" id="lengthStep" min="1" max="50" value="10" step="1" class="slider">
+                        </div>
+                        <div>
+                            <label for="rodDiameter" class="label">杆件直径: <span id="rodDiameterValue">5mm</span></label>
+                            <input type="range" id="rodDiameter" min="1" max="20" value="5" step="0.5" class="slider">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 材料配置 -->
+                <div class="card">
+                    <h2 class="card-header">材料配置</h2>
+                    <div class="p-4 space-y-3">
+                        <div>
+                            <label for="materialType" class="label">材料类型:</label>
+                            <select id="materialType" class="select">
+                                <option value="steel">钢</option>
+                                <option value="aluminum">铝</option>
+                                <option value="copper">铜</option>
+                                <option value="custom">自定义</option>
+                            </select>
+                        </div>
+                        <div id="custom-material-inputs" class="hidden space-y-3">
+                             <div>
+                                <label for="youngModulus" class="label">杨氏模量 (GPa): <span id="youngModulusValue">200GPa</span></label>
+                                <input type="range" id="youngModulus" min="1" max="1000" value="200" step="1" class="slider">
+                            </div>
+                            <div>
+                                <label for="density" class="label">密度 (kg/m³): <span id="densityValue">7850kg/m³</span></label>
+                                <input type="range" id="density" min="100" max="20000" value="7850" step="50" class="slider">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 激励配置 -->
+                <div class="card">
+                    <h2 class="card-header">激励配置</h2>
+                    <div class="p-4 space-y-3">
+                        <div>
+                            <label for="excitationType" class="label">激励类型:</label>
+                            <select id="excitationType" class="select">
+                                <option value="sine">正弦波</option>
+                                <option value="impulse">脉冲</option>
+                                <option value="noise">白噪声</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="frequency" class="label">频率 (Hz): <span id="frequencyValue">100Hz</span></label>
+                            <input type="range" id="frequency" min="1" max="1000" value="100" step="1" class="slider">
+                        </div>
+                        <div>
+                            <label for="amplitude" class="label">振幅: <span id="amplitudeValue">1</span></label>
+                            <input type="range" id="amplitude" min="0.1" max="10" value="1" step="0.1" class="slider">
+                        </div>
+                        <div>
+                            <label for="damping" class="label">阻尼系数: <span id="dampingValue">0.01</span></label>
+                            <input type="range" id="damping" min="0" max="0.5" value="0.01" step="0.005" class="slider">
+                        </div>
+                         <div>
+                            <label for="timeScale" class="label">时间缩放: <span id="timeScaleValue">1x</span></label>
+                            <input type="range" id="timeScale" min="0.1" max="5" value="1" step="0.1" class="slider">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 控制按钮 -->
+                <div class="card">
+                    <h2 class="card-header">控制</h2>
+                    <div class="p-4 grid grid-cols-2 gap-2">
+                        <button id="playPauseBtn" class="btn btn-primary col-span-2">▶️ 开始</button>
+                        <button id="resetBtn" class="btn btn-secondary">🔄 重置</button>
+                        <button id="calculateResonanceBtn" class="btn btn-info">🔊 计算共振</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧显示区域 -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- 3D可视化 -->
+                <div class="card h-[400px]">
+                    <h2 class="card-header">3D 可视化</h2>
+                    <div id="threejs-container" class="p-1 bg-gray-200 h-full w-full">
+                        <!-- Three.js 渲染区域 -->
+                    </div>
+                </div>
+
+                <!-- 图表区域 -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="card h-[300px]">
+                        <h2 class="card-header">波形图</h2>
+                        <div id="waveform-plot" class="p-1 h-full w-full"></div>
+                    </div>
+                    <div class="card h-[300px]">
+                        <h2 class="card-header">频谱图</h2>
+                        <div id="frequency-plot" class="p-1 h-full w-full"></div>
+                    </div>
+                </div>
+
+                 <!-- 杆件状态显示 -->
+                <div class="card">
+                    <h2 class="card-header">杆件状态</h2>
+                    <div id="rod-status-list" class="p-4 text-sm">
+                        <!-- 状态将通过JS动态填充 -->
+                        <p class="text-gray-500">请先开始模拟或计算共振...</p>
+                    </div>
+                </div>
+
+                <!-- 音频处理 -->
+                <div class="card">
+                    <h2 class="card-header">音频处理</h2>
+                    <div class="p-4 space-y-3">
+                        <div>
+                            <label for="audioFile" class="label">上传音频文件 (WAV/MP3):</label>
+                            <input type="file" id="audioFile" accept=".wav,.mp3" class="input-file">
+                        </div>
+                        <button id="processAudioBtn" class="btn btn-success">处理音频</button>
+                        <button id="playAudioBtn" class="btn btn-secondary" disabled>播放处理后音频</button>
+                    </div>
+                </div>
+
+                <!-- 声音生成器 -->
+                <div class="card">
+                    <h2 class="card-header">声音生成器</h2>
+                    <div class="p-4 space-y-3">
+                        <div>
+                            <label for="genFreq" class="label">频率 (Hz): <span id="genFreqValue">440Hz</span></label>
+                            <input type="range" id="genFreq" min="20" max="20000" value="440" class="slider">
+                        </div>
+                        <div>
+                            <label for="duration" class="label">时长 (秒): <span id="durationValue">1s</span></label>
+                            <input type="range" id="duration" min="0.1" max="5" value="1" step="0.1" class="slider">
+                        </div>
+                        <button id="generateSoundBtn" class="btn btn-success">生成声音</button>
+                        <button id="playSoundBtn" class="btn btn-secondary" disabled>播放生成声音</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-8 text-center text-sm text-gray-600">
+            <p>&copy; 2023-2024 多杆件振动模拟系统. <a href="debug.html" class="text-blue-500 hover:underline">调试页面</a> | <a href="test.html" class="text-blue-500 hover:underline">旧版测试页</a> | <a href="quick-fix.html" class="text-blue-500 hover:underline">快速修复</a></p>
+        </footer>
+    </div>
+
+    <!-- 外部库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    
+    <!-- 项目模块脚本 -->
+    <script src="js/materials.js"></script>
+    <script src="js/vibration-calc.js"></script>
+    <script src="js/audio-processor.js"></script>
+    <script src="js/visualization.js"></script>
+    <script src="js/rod-manager.js"></script>
+    <script src="js/main.js"></script>
+    
+    <!-- 初始化脚本 -->
+    <script src="js/init.js"></script>
+
+</body>
+</html> 

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统测试 - 多杆振动模拟</title>
+    <link rel="stylesheet" href="css/local-styles.css">
+    <style>
+        .test-section {
+            background: white;
+            margin: 1rem 0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .test-result {
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            border-radius: 0.25rem;
+            font-family: monospace;
+        }
+        .test-pass {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+        .test-fail {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+        .test-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left: 4px solid #17a2b8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-xl font-bold mb-4">多杆振动模拟系统 - 快速测试</h1>
+        
+        <div class="test-section">
+            <h2 class="font-semibold mb-2">外部库加载测试</h2>
+            <div id="external-tests"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2 class="font-semibold mb-2">模块加载测试</h2>
+            <div id="module-tests"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2 class="font-semibold mb-2">主控制器测试</h2>
+            <div id="controller-tests"></div>
+            <button id="test-main-controller" class="btn btn-primary mt-2">测试主控制器初始化</button>
+        </div>
+        
+        <div class="test-section">
+            <h2 class="font-semibold mb-2">操作</h2>
+            <div class="flex gap-2">
+                <a href="index.html" class="btn btn-success">返回主页</a>
+                <a href="debug.html" class="btn btn-secondary">调试页面</a>
+                <button onclick="location.reload()" class="btn btn-primary">重新测试</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 外部库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    
+    <!-- 本地模块 -->
+    <script src="js/materials.js"></script>
+    <script src="js/vibration-calc.js"></script>
+    <script src="js/audio-processor.js"></script>
+    <script src="js/visualization.js"></script>
+    <script src="js/rod-manager.js"></script>
+    <script src="js/main.js"></script>
+
+    <script>
+        function log(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            const div = document.createElement('div');
+            div.className = `test-result test-${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            container.appendChild(div);
+        }
+
+        function runTests() {
+            // 测试外部库
+            log('external-tests', '开始测试外部库...', 'info');
+            
+            if (typeof THREE !== 'undefined') {
+                log('external-tests', '✓ Three.js 加载成功', 'pass');
+            } else {
+                log('external-tests', '✗ Three.js 加载失败', 'fail');
+            }
+            
+            if (typeof Plotly !== 'undefined') {
+                log('external-tests', '✓ Plotly.js 加载成功', 'pass');
+            } else {
+                log('external-tests', '✗ Plotly.js 加载失败', 'fail');
+            }
+
+            // 测试模块
+            log('module-tests', '开始测试本地模块...', 'info');
+            
+            const modules = [
+                { name: 'MaterialProperties', ref: window.MaterialProperties },
+                { name: 'VibrationCalculator', ref: window.VibrationCalculator },
+                { name: 'AudioProcessor', ref: window.AudioProcessor },
+                { name: 'Visualization', ref: window.Visualization },
+                { name: 'RodManager', ref: window.RodManager },
+                { name: 'MainController', ref: window.MainController }
+            ];
+
+            modules.forEach(module => {
+                if (module.ref) {
+                    log('module-tests', `✓ ${module.name} 加载成功`, 'pass');
+                } else {
+                    log('module-tests', `✗ ${module.name} 加载失败`, 'fail');
+                }
+            });
+
+            // 测试主控制器
+            document.getElementById('test-main-controller').addEventListener('click', () => {
+                log('controller-tests', '开始测试主控制器初始化...', 'info');
+                
+                try {
+                    // 创建一个简单的容器用于测试
+                    const testContainer = document.createElement('div');
+                    testContainer.id = 'threejs-container';
+                    testContainer.style.width = '100px';
+                    testContainer.style.height = '100px';
+                    testContainer.style.position = 'absolute';
+                    testContainer.style.left = '-9999px';
+                    document.body.appendChild(testContainer);
+                    
+                    const controller = new MainController();
+                    controller.init().then(() => {
+                        log('controller-tests', '✓ 主控制器初始化成功', 'pass');
+                        document.body.removeChild(testContainer);
+                    }).catch(error => {
+                        log('controller-tests', `✗ 主控制器初始化失败: ${error.message}`, 'fail');
+                        if (document.body.contains(testContainer)) {
+                            document.body.removeChild(testContainer);
+                        }
+                    });
+                } catch (error) {
+                    log('controller-tests', `✗ 主控制器创建失败: ${error.message}`, 'fail');
+                }
+            });
+        }
+
+        // 页面加载完成后运行测试
+        window.addEventListener('load', () => {
+            setTimeout(runTests, 100); // 稍微延迟确保所有脚本都加载完成
+        });
+    </script>
+</body>
+</html> 

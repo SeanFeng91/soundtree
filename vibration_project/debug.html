@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模块加载调试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1f2937; color: white; }
+        .log { margin: 5px 0; padding: 5px; border-radius: 3px; }
+        .success { background: #065f46; }
+        .error { background: #7f1d1d; }
+        .info { background: #1e3a8a; }
+        .warning { background: #92400e; }
+    </style>
+</head>
+<body>
+    <h1>多杆件振动模拟系统 - 模块加载调试</h1>
+    <div id="debug-log"></div>
+    
+    <script>
+        function log(type, message) {
+            const logDiv = document.getElementById('debug-log');
+            const entry = document.createElement('div');
+            entry.className = `log ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            console.log(message);
+        }
+        
+        function checkDependencies() {
+            log('info', '开始检查外部依赖...');
+            
+            if (typeof THREE !== 'undefined') {
+                log('success', '✓ Three.js 已加载');
+            } else {
+                log('error', '✗ Three.js 未加载');
+            }
+            
+            if (typeof Plotly !== 'undefined') {
+                log('success', '✓ Plotly.js 已加载');
+            } else {
+                log('error', '✗ Plotly.js 未加载');
+            }
+        }
+        
+        function checkModules() {
+            log('info', '开始检查模块加载...');
+            
+            const modules = [
+                'MaterialProperties',
+                'VibrationCalculator',
+                'AudioProcessor',
+                'RodManager',
+                'Visualization',
+                'MainController'
+            ];
+            
+            modules.forEach(moduleName => {
+                if (typeof window[moduleName] !== 'undefined') {
+                    log('success', `✓ ${moduleName} 已加载`);
+                } else {
+                    log('error', `✗ ${moduleName} 未加载`);
+                }
+            });
+        }
+        
+        function runTests() {
+            setTimeout(() => {
+                checkDependencies();
+                setTimeout(() => {
+                    checkModules();
+                }, 1000);
+            }, 500);
+        }
+        
+        window.addEventListener('load', runTests);
+    </script>
+    
+    <!-- 加载外部依赖 -->
+    <script src="https://cdn.tailwindcss.com/3.4.0"></script>
+    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    
+    <!-- 按顺序加载模块 -->
+    <script src="js/config.js"></script>
+    <script src="js/materials.js"></script>
+    <script src="js/vibration-calc.js"></script>
+    <script src="js/audio-processor.js"></script>
+    <script src="js/visualization.js"></script>
+    <script src="js/rod-manager.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html> 

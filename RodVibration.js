@@ -211,6 +211,35 @@ class RodVibrator {
             // 如果没有法线，可能需要添加或接受不完美的光照
         }
     }
+
+    /**
+     * 重置振动状态，停止所有振动并恢复到原始形状
+     */
+    reset() {
+        // 重置所有物理参数
+        this.targetExcitationAmplitude = 0;
+        this.currentExcitationAmplitude = 0;
+        this.amplitudeVelocity = 0;
+        this.currentTime = 0;
+        
+        // 恢复几何体到原始形状
+        this.rodMesh.geometry.attributes.position.array.set(this.originalVertices);
+        this.rodMesh.geometry.attributes.position.needsUpdate = true;
+        
+        // 重新计算法线
+        if (this.rodMesh.geometry.attributes.normal) {
+            this.rodMesh.geometry.computeVertexNormals();
+        }
+    }
+
+    /**
+     * 停止新的冲击，但让现有振动自然衰减
+     */
+    stopNewImpulses() {
+        // 这个方法可以用于暂停时，停止接受新的冲击但让现有振动衰减
+        // 实际的冲击控制在外部的 applyImpulse 调用中进行
+        // 这里可以设置一个标志位，或者直接由外部控制
+    }
 }
 
 // 导出，以便 script.js 可以导入

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>修复测试 - 多杆振动模拟</title>
+    <link rel="stylesheet" href="css/local-styles.css">
+    <style>
+        .test-log {
+            background: white;
+            padding: 1rem;
+            margin: 0.5rem 0;
+            border-radius: 0.5rem;
+            font-family: monospace;
+            font-size: 0.9rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .step {
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            border-radius: 0.25rem;
+        }
+        .step.success { background: #d4edda; color: #155724; }
+        .step.error { background: #f8d7da; color: #721c24; }
+        .step.info { background: #d1ecf1; color: #0c5460; }
+        .step.warning { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-xl font-bold mb-4">修复测试页面</h1>
+        <p class="mb-4">测试修复后的模块加载和初始化流程</p>
+        
+        <div class="test-log" id="test-log">
+            <div class="step info">开始测试...</div>
+        </div>
+        
+        <div class="flex gap-2 mt-4">
+            <button id="start-test" class="btn btn-primary">开始测试</button>
+            <button onclick="location.reload()" class="btn btn-secondary">重新测试</button>
+            <a href="index.html" class="btn btn-success">返回主页</a>
+        </div>
+        
+        <!-- 隐藏的3D容器用于测试 -->
+        <div id="threejs-container" style="width: 1px; height: 1px; position: absolute; left: -9999px;"></div>
+    </div>
+
+    <!-- 外部库加载 -->
+    <script>
+        // THREE.js 加载函数
+        function loadThreeJS() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+                script.onload = () => resolve();
+                script.onerror = () => {
+                    log('尝试备用CDN...', 'warning');
+                    const backupScript = document.createElement('script');
+                    backupScript.src = 'https://unpkg.com/three@0.158.0/build/three.min.js';
+                    backupScript.onload = () => resolve();
+                    backupScript.onerror = () => reject();
+                    document.head.appendChild(backupScript);
+                };
+                document.head.appendChild(script);
+            });
+        }
+        
+        // Plotly.js 加载函数  
+        function loadPlotly() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.plot.ly/plotly-2.29.1.min.js';
+                script.onload = () => resolve();
+                script.onerror = () => {
+                    log('尝试备用CDN...', 'warning');
+                    const backupScript = document.createElement('script');
+                    backupScript.src = 'https://unpkg.com/plotly.js@2.29.1/dist/plotly.min.js';
+                    backupScript.onload = () => resolve();
+                    backupScript.onerror = () => reject();
+                    document.head.appendChild(backupScript);
+                };
+                document.head.appendChild(script);
+            });
+        }
+        
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('test-log');
+            const div = document.createElement('div');
+            div.className = `step ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(div);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(message);
+        }
+        
+        async function runTest() {
+            const startBtn = document.getElementById('start-test');
+            startBtn.disabled = true;
+            startBtn.textContent = '测试中...';
+            
+            try {
+                // 1. 测试外部库加载
+                log('开始加载外部库...', 'info');
+                
+                await loadThreeJS();
+                log('✓ THREE.js 加载成功', 'success');
+                
+                await loadPlotly();
+                log('✓ Plotly.js 加载成功', 'success');
+                
+                // 2. 加载本地模块
+                log('开始加载本地模块...', 'info');
+                
+                const scripts = [
+                    'js/materials.js',
+                    'js/vibration-calc.js', 
+                    'js/audio-processor.js',
+                    'js/visualization.js',
+                    'js/rod-manager.js',
+                    'js/main.js'
+                ];
+                
+                for (const scriptSrc of scripts) {
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = scriptSrc;
+                        script.onload = () => {
+                            log(`✓ ${scriptSrc} 加载成功`, 'success');
+                            resolve();
+                        };
+                        script.onerror = () => {
+                            log(`✗ ${scriptSrc} 加载失败`, 'error');
+                            reject();
+                        };
+                        document.head.appendChild(script);
+                    });
+                }
+                
+                // 3. 测试类是否可用
+                log('检查类定义...', 'info');
+                const classes = ['MaterialProperties', 'VibrationCalculator', 'AudioProcessor', 'Visualization', 'RodManager', 'MainController'];
+                
+                for (const className of classes) {
+                    if (typeof window[className] !== 'undefined') {
+                        log(`✓ ${className} 类定义正常`, 'success');
+                    } else {
+                        log(`✗ ${className} 类未找到`, 'error');
+                    }
+                }
+                
+                // 4. 测试主控制器初始化
+                log('测试主控制器初始化...', 'info');
+                
+                const controller = new MainController();
+                await controller.init();
+                log('✓ 主控制器初始化成功', 'success');
+                
+                log('🎉 所有测试通过！', 'success');
+                
+            } catch (error) {
+                log(`✗ 测试失败: ${error.message}`, 'error');
+            } finally {
+                startBtn.disabled = false;
+                startBtn.textContent = '开始测试';
+            }
+        }
+        
+        document.getElementById('start-test').addEventListener('click', runTest);
+    </script>
+</body>
+</html> 

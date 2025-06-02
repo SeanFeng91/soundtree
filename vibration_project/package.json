@@ -1,0 +1,98 @@
+{
+  "name": "multi-rod-vibration-simulator",
+  "version": "1.0.0",
+  "description": "多杆件振动模拟系统 - 支持不同长度杆件的振动分析、材料特性调节、音频文件激励和波形可视化",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "serve": "npx http-server . -p 8000 -c-1",
+    "test": "open test.html"
+  },
+  "keywords": [
+    "vibration",
+    "simulation", 
+    "cantilever",
+    "beam",
+    "resonance",
+    "frequency",
+    "audio",
+    "visualization",
+    "3d",
+    "engineering"
+  ],
+  "author": "Vibration Simulation Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "browserslist": [
+    "Chrome >= 80",
+    "Firefox >= 75", 
+    "Safari >= 13",
+    "Edge >= 80"
+  ],
+  "dependencies": {
+    "note": "此项目使用CDN加载外部依赖，无需npm install"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.0"
+  },
+  "externalDependencies": {
+    "three.js": "r128",
+    "plotly.js": "latest",
+    "tailwindcss": "latest"
+  },
+  "features": {
+    "rodConfiguration": {
+      "lengthRange": "20mm - 200mm",
+      "countRange": "1 - 20",
+      "diameterRange": "1mm - 20mm"
+    },
+    "materials": {
+      "presets": ["钢材", "铝材", "黄铜", "铜材"],
+      "customizable": true,
+      "properties": ["弹性模量", "密度"]
+    },
+    "excitation": {
+      "types": ["正弦波", "扫频", "音频文件"],
+      "frequencyRange": "20Hz - 2000Hz",
+      "audioFormats": ["MP3", "MP4", "WAV"]
+    },
+    "visualization": {
+      "3d": "Three.js WebGL渲染",
+      "charts": "Plotly.js交互式图表",
+      "realtime": "实时数据更新"
+    }
+  },
+  "systemRequirements": {
+    "webgl": "必需",
+    "webAudio": "必需",
+    "fileApi": "必需",
+    "es6": "必需"
+  },
+  "fileStructure": {
+    "index.html": "主界面文件",
+    "test.html": "模块测试页面",
+    "js/config.js": "配置文件和常量",
+    "js/materials.js": "材料特性模块",
+    "js/vibration-calc.js": "振动计算核心模块",
+    "js/audio-processor.js": "音频处理模块", 
+    "js/visualization.js": "可视化图表模块",
+    "js/rod-manager.js": "杆件管理和3D渲染模块",
+    "js/main.js": "主控制模块",
+    "js/init.js": "初始化脚本"
+  },
+  "usage": {
+    "development": "直接在浏览器中打开index.html",
+    "production": "使用http-server或任何静态文件服务器",
+    "testing": "打开test.html进行模块测试"
+  },
+  "repository": {
+    "type": "git",
+    "url": "请根据实际情况填写"
+  },
+  "bugs": {
+    "url": "请根据实际情况填写"
+  },
+  "homepage": "请根据实际情况填写"
+} 

@@ -187,6 +187,62 @@
         .hidden {
             display: none;
         }
+
+        .info-sections {
+            position: absolute;
+            top: 320px;
+            right: -400px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            background-color: rgba(20, 20, 30, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            color: #eee;
+            font-family: Arial, sans-serif;
+            max-height: calc(100vh - 20px); /* 限制最大高度 */
+            overflow-y: auto; /* 如果内容过多则显示滚动条 */
+        }
+
+        #waveform-container,
+        #frequency-list-container {
+            border: 1px solid #444;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: rgba(30, 30, 40, 0.7);
+        }
+
+        #waveform-container h4,
+        #frequency-list-container h4 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #00bcd4; /* 青色标题 */
+            font-size: 1em;
+        }
+
+        #waveformCanvas {
+            background-color: #111;
+            border-radius: 3px;
+            display: block; /* 确保canvas是块级元素 */
+        }
+
+        #frequencyList {
+            list-style-type: none;
+            padding-left: 0;
+            margin: 0;
+            max-height: 200px; /* 限制频率列表的高度 */
+            overflow-y: auto; /* 超出则滚动 */
+            font-size: 0.8em;
+        }
+
+        #frequencyList li {
+            padding: 2px 0;
+            border-bottom: 1px dashed #333;
+        }
+
+        #frequencyList li:last-child {
+            border-bottom: none;
+        }
     </style>
 </head>
 <body>
@@ -223,6 +279,13 @@
             </div>
 
             <div class="control-group">
+                <label for="frequencySlider">选择频率 (1-2000 Hz):</label>
+                <input type="range" id="frequencySlider" class="frequency-slider" min="1" max="2000" value="440" style="width: 70%;">
+                <input type="number" id="frequencyInput" min="1" max="2000" value="440" style="width: 25%; margin-left: 5%;">
+                <span id="frequencyValue" style="display: block; text-align: center; margin-top: 5px;">440 Hz</span>
+            </div>
+
+            <div class="control-group">
                 <div class="volume-control">
                     <label>音量:</label>
                     <input type="range" id="volumeSlider" class="volume-slider" min="0" max="1" step="0.1" value="0.5">
@@ -237,6 +300,20 @@
                 • 3D声音树会根据音频频率产生振动<br>
                 • 不同长度的杆子对应不同的频率范围<br>
                 • 使用鼠标拖拽可以旋转查看3D场景
+            </div>
+
+            <div class="info-sections">
+                <div id="waveform-container">
+                    <h4>Audio Waveform</h4>
+                    <canvas id="waveformCanvas" width="300" height="100"></canvas>
+                </div>
+
+                <div id="frequency-list-container">
+                    <h4>Rod Resonance Frequencies (Hz)</h4>
+                    <ul id="frequencyList">
+                        <!-- Frequencies will be listed here by JavaScript -->
+                    </ul>
+                </div>
             </div>
         </div>
 
@@ -254,5 +331,38 @@
     <script src="audio-generator.js"></script>
     <!-- 主脚本 -->
     <script type="module" src="script.js"></script>
+
+    <script>
+        const frequencySlider = document.getElementById('frequencySlider');
+        const frequencyInput = document.getElementById('frequencyInput');
+        const frequencyValueDisplay = document.getElementById('frequencyValue');
+
+        if (frequencySlider && frequencyInput && frequencyValueDisplay) {
+            frequencySlider.addEventListener('input', (event) => {
+                const value = event.target.value;
+                frequencyInput.value = value;
+                frequencyValueDisplay.textContent = `${value} Hz`;
+                // 在这里可以添加当频率变化时需要执行的其他逻辑
+                // 例如：updateAudioSourceFrequency(value);
+            });
+
+            frequencyInput.addEventListener('input', (event) => {
+                let value = parseInt(event.target.value);
+                if (isNaN(value)) {
+                    value = 1; // 如果输入无效，默认为1
+                }
+                if (value < 1) value = 1;
+                if (value > 2000) value = 2000;
+                
+                event.target.value = value; // 更新输入框的值，以防用户输入超出范围的值
+                frequencySlider.value = value;
+                frequencyValueDisplay.textContent = `${value} Hz`;
+                // 在这里可以添加当频率变化时需要执行的其他逻辑
+                // 例如：updateAudioSourceFrequency(value);
+            });
+        } else {
+            console.error("Frequency control elements not found!");
+        }
+    </script>
 </body>
 </html> 
