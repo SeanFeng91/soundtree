@@ -99,6 +99,33 @@
         ></canvas>
       </div>
     </div>
+    
+    <!-- 频率分析信息 -->
+    <div v-if="isPlaying && isExcitationMode" class="mb-4 p-3 bg-white/5 rounded-lg">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-sm font-medium text-white">音乐频率分析</span>
+        <button 
+          @click="resetFrequencyAnalysis"
+          class="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors"
+        >
+          重置分析
+        </button>
+      </div>
+      <div class="text-xs text-gray-300 space-y-1">
+        <div v-if="currentAnalysis">
+          <span class="text-blue-400">主导频率:</span> 
+          {{ currentAnalysis.dominantFrequency.toFixed(1) }}Hz
+          <span class="ml-2 text-yellow-400">置信度:</span> 
+          {{ (currentAnalysis.confidence * 100).toFixed(0) }}%
+        </div>
+        <div v-if="currentAnalysis && currentAnalysis.peaks.length > 1">
+          <span class="text-green-400">主要峰值:</span>
+          <span v-for="(peak, index) in currentAnalysis.peaks.slice(0, 3)" :key="index" class="ml-1">
+            {{ peak.frequency.toFixed(0) }}Hz
+          </span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -121,6 +148,7 @@ const currentTime = ref(0)
 const duration = ref(0)
 const isAudioEnabled = ref(true)
 const isExcitationMode = ref(false)
+const currentAnalysis = ref(null) // 当前的频率分析结果
 
 // 音频相关
 let audioContext = null
@@ -130,6 +158,8 @@ let gainNode = null
 let startTime = 0
 let pauseTime = 0
 let onFrequencyChange = null // 频率变化回调函数
+let frequencyHistory = [] // 频率历史记录，用于平滑
+let lastDominantFreq = 0 // 上一次的主导频率
 
 // 动画帧
 let animationFrame = null
@@ -255,6 +285,10 @@ function startPlayback() {
     audioSource.disconnect()
   }
   
+  // 重置频率分析状态
+  frequencyHistory = []
+  lastDominantFreq = 0
+  
   // 创建新的音频源
   audioSource = audioContext.createBufferSource()
   audioSource.buffer = audioBuffer.value
@@ -341,10 +375,13 @@ function updateProgress() {
   
   // 如果在激励模式，分析并传递主导频率
   if (isExcitationMode.value && onFrequencyChange) {
-    const dominantFreq = getDominantFrequency()
-    if (dominantFreq && dominantFreq.amplitude > 0.1) { // 只有足够强的信号才传递
-      onFrequencyChange(dominantFreq.frequency)
+    const analysis = getMusicalFrequencyAnalysis()
+    if (analysis && analysis.confidence > 0.4) { // 只传递置信度较高的频率
+      onFrequencyChange(analysis.frequency)
     }
+    
+    // 更新分析结果显示
+    currentAnalysis.value = analysis
   }
   
   animationFrame = requestAnimationFrame(updateProgress)
@@ -572,33 +609,151 @@ function setFrequencyChangeCallback(callback) {
   onFrequencyChange = callback
 }
 
-// 获取当前音频的主导频率
-function getDominantFrequency() {
+// 改进的频率分析算法
+function getMusicalFrequencyAnalysis() {
   if (!analyser || !isPlaying.value) return null
   
   const bufferLength = analyser.frequencyBinCount
   const dataArray = new Uint8Array(bufferLength)
   analyser.getByteFrequencyData(dataArray)
   
-  // 找到峰值频率
-  let maxAmplitude = 0
-  let dominantIndex = 0
+  const sampleRate = audioContext.sampleRate
+  const freqResolution = sampleRate / (2 * bufferLength)
   
-  for (let i = 0; i < bufferLength; i++) {
-    if (dataArray[i] > maxAmplitude) {
-      maxAmplitude = dataArray[i]
-      dominantIndex = i
+  // 1. 找到所有显著的频率峰值
+  const peaks = findFrequencyPeaks(dataArray, freqResolution)
+  
+  // 2. 过滤掉低频噪声和高频噪声
+  const filteredPeaks = peaks.filter(peak => 
+    peak.frequency >= 60 && peak.frequency <= 4000 && peak.amplitude > 0.1
+  )
+  
+  if (filteredPeaks.length === 0) return null
+  
+  // 3. 尝试识别基频
+  const fundamentalFreq = findFundamentalFrequency(filteredPeaks)
+  
+  // 4. 如果找不到基频，使用能量最大的频率
+  const dominantFreq = fundamentalFreq || filteredPeaks[0].frequency
+  
+  // 5. 应用时间平滑
+  const smoothedFreq = applyFrequencySmoothing(dominantFreq)
+  
+  return {
+    frequency: smoothedFreq,
+    confidence: fundamentalFreq ? 0.8 : 0.5,
+    peaks: filteredPeaks.slice(0, 3) // 返回前3个主要峰值
+  }
+}
+
+// 寻找频率峰值
+function findFrequencyPeaks(dataArray, freqResolution) {
+  const peaks = []
+  const threshold = 20 // 最小幅度阈值
+  
+  for (let i = 2; i < dataArray.length - 2; i++) {
+    const amplitude = dataArray[i]
+    
+    // 局部最大值检测
+    if (amplitude > threshold &&
+        amplitude > dataArray[i-1] && 
+        amplitude > dataArray[i+1] &&
+        amplitude > dataArray[i-2] && 
+        amplitude > dataArray[i+2]) {
+      
+      const frequency = i * freqResolution
+      peaks.push({
+        frequency: frequency,
+        amplitude: amplitude / 255.0,
+        bin: i
+      })
     }
   }
   
-  // 计算频率
-  const sampleRate = audioContext.sampleRate
-  const dominantFreq = (dominantIndex * sampleRate) / (2 * bufferLength)
+  // 按幅度排序
+  return peaks.sort((a, b) => b.amplitude - a.amplitude)
+}
+
+// 识别基频（考虑谐波关系）
+function findFundamentalFrequency(peaks) {
+  if (peaks.length < 2) return null
   
-  return {
-    frequency: dominantFreq,
-    amplitude: maxAmplitude / 255.0
+  // 尝试每个峰值作为基频
+  for (let i = 0; i < Math.min(peaks.length, 5); i++) {
+    const candidateFreq = peaks[i].frequency
+    
+    // 检查是否有谐波支持
+    let harmonicSupport = 0
+    let totalHarmonicStrength = 0
+    
+    for (let harmonic = 2; harmonic <= 6; harmonic++) {
+      const harmonicFreq = candidateFreq * harmonic
+      const tolerance = candidateFreq * 0.05 // 5% 容差
+      
+      // 寻找接近谐波频率的峰值
+      const nearbyPeak = peaks.find(peak => 
+        Math.abs(peak.frequency - harmonicFreq) < tolerance
+      )
+      
+      if (nearbyPeak) {
+        harmonicSupport++
+        totalHarmonicStrength += nearbyPeak.amplitude
+      }
+    }
+    
+    // 如果有足够的谐波支持，认为是基频
+    if (harmonicSupport >= 2 && candidateFreq >= 80 && candidateFreq <= 2000) {
+      return candidateFreq
+    }
   }
+  
+  // 如果没有找到明显的基频，返回最强的低频成分
+  const lowFreqPeak = peaks.find(peak => peak.frequency >= 80 && peak.frequency <= 800)
+  return lowFreqPeak ? lowFreqPeak.frequency : null
+}
+
+// 频率平滑处理
+function applyFrequencySmoothing(newFreq) {
+  const maxHistoryLength = 5
+  
+  // 添加到历史记录
+  frequencyHistory.push(newFreq)
+  if (frequencyHistory.length > maxHistoryLength) {
+    frequencyHistory.shift()
+  }
+  
+  // 如果频率变化太剧烈，进行平滑
+  if (lastDominantFreq > 0) {
+    const freqChange = Math.abs(newFreq - lastDominantFreq) / lastDominantFreq
+    
+    if (freqChange > 0.3) { // 如果变化超过30%
+      // 使用加权平均平滑
+      const weights = [0.4, 0.3, 0.2, 0.1] // 新的权重更大
+      let weightedSum = 0
+      let totalWeight = 0
+      
+      for (let i = 0; i < Math.min(frequencyHistory.length, weights.length); i++) {
+        const idx = frequencyHistory.length - 1 - i
+        weightedSum += frequencyHistory[idx] * weights[i]
+        totalWeight += weights[i]
+      }
+      
+      newFreq = weightedSum / totalWeight
+    }
+  }
+  
+  lastDominantFreq = newFreq
+  return newFreq
+}
+
+// 获取当前音频的主导频率（改进版）
+function getDominantFrequency() {
+  const analysis = getMusicalFrequencyAnalysis()
+  return analysis ? {
+    frequency: analysis.frequency,
+    amplitude: analysis.peaks[0]?.amplitude || 0,
+    confidence: analysis.confidence
+  } : null
 }
 
 // 监听窗口大小变化
@@ -609,6 +764,27 @@ watch([waveformContainer, spectrumContainer], () => {
   }
 })
 
+// 获取详细的音频分析信息（用于调试）
+function getDetailedAudioAnalysis() {
+  const analysis = getMusicalFrequencyAnalysis()
+  if (!analysis) return null
+  
+  return {
+    dominantFrequency: analysis.frequency,
+    confidence: analysis.confidence,
+    peaks: analysis.peaks,
+    frequencyHistory: [...frequencyHistory],
+    analysisTime: new Date().toISOString()
+  }
+}
+
+// 手动重置频率分析状态
+function resetFrequencyAnalysis() {
+  frequencyHistory = []
+  lastDominantFreq = 0
+  console.log('🔄 频率分析状态已重置')
+}
+
 // 暴露方法供父组件调用
 defineExpose({
   startAudioExcitation,
@@ -616,6 +792,8 @@ defineExpose({
   setAudioEnabled,
   getAudioFrequencyData,
   setFrequencyChangeCallback,
-  getDominantFrequency
+  getDominantFrequency,
+  getDetailedAudioAnalysis,
+  resetFrequencyAnalysis
 })
 </script> 
