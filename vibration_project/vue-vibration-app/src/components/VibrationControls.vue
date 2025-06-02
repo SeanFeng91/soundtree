@@ -147,12 +147,26 @@
             <option value="sweep">扫频</option>
             <option value="audio">音频文件</option>
           </select>
+          <p class="text-xs text-gray-400 mt-1">
+            <span v-if="excitationConfig.type === 'sine'">
+              🎵 固定频率的正弦波激励，可手动调节频率
+            </span>
+            <span v-else-if="excitationConfig.type === 'sweep'">
+              🔄 20Hz至4000Hz的线性扫频，自动寻找共振点
+            </span>
+            <span v-else-if="excitationConfig.type === 'audio'">
+              🎶 使用音频文件作为激励源，实时分析主导频率
+            </span>
+          </p>
         </div>
         
         <!-- 频率 -->
         <div class="space-y-2">
           <label class="block text-sm font-medium text-white mb-1">
             频率: <span class="text-blue-400">{{ excitationConfig.frequency }}Hz</span>
+            <span v-if="currentAudioFrequency && currentAudioFrequency !== excitationConfig.frequency" class="text-yellow-400 ml-2">
+              (实时: {{ currentAudioFrequency.toFixed(1) }}Hz)
+            </span>
           </label>
           <input 
             v-model.number="excitationConfig.frequency"
@@ -161,6 +175,7 @@
             max="2000" 
             class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
             @input="updateExcitationConfig"
+            :disabled="excitationConfig.type !== 'sine'"
           />
         </div>
         
@@ -342,6 +357,7 @@ const isRunning = ref(false)
 const rodStatus = ref([])
 const selectedRodIndex = ref(4)
 const audioEnabled = ref(true)
+const currentAudioFrequency = ref(null)
 
 // 材料预设
 const materialPresets = {
@@ -413,6 +429,11 @@ watch(() => materialConfig.value.type, (newType) => {
   updateMaterialConfig()
 })
 
+// 更新实时音频频率显示
+function updateCurrentAudioFrequency(frequency) {
+  currentAudioFrequency.value = frequency
+}
+
 // 暴露方法供父组件调用
 function updateRodStatus(status) {
   rodStatus.value = status
@@ -424,6 +445,7 @@ function setRunningState(running) {
 
 defineExpose({
   updateRodStatus,
-  setRunningState
+  setRunningState,
+  updateCurrentAudioFrequency
 })
 </script> 

@@ -15,6 +15,7 @@ const resonancePlot = ref(null)
 const isSimulationRunning = ref(false)
 const is3DInitialized = ref(false)
 const selectedRodIndex = ref(4)
+const audioEnabled = ref(true)
 const currentConfig = ref({
   rodCount: 10,
   startLength: 20,
@@ -80,6 +81,15 @@ async function initializeVibrationEngine() {
     audioGenerator = new AudioGenerator()
     await audioGenerator.init()
     window.audioGenerator = audioGenerator // 让其他模块可以访问
+    
+    // 设置音频频率变化回调
+    audioGenerator.setFrequencyChangeCallback(handleAudioFrequencyChange)
+    
+    // 为AudioPlayer组件设置回调（在组件挂载后）
+    if (audioPlayer.value) {
+      audioPlayer.value.setFrequencyChangeCallback(handleAudioFrequencyChange)
+    }
+    
     console.log('✓ 音频生成器初始化成功')
     
     console.log('✓ 振动引擎初始化完成')
@@ -87,6 +97,27 @@ async function initializeVibrationEngine() {
     console.error('振动引擎初始化失败:', error)
     throw error
   }
+}
+
+// 处理音频频率变化的回调函数
+function handleAudioFrequencyChange(frequency) {
+  // 更新当前配置中的频率
+  currentConfig.value.frequency = frequency
+  
+  // 实时更新振动系统的激励频率
+  if (rodManager && isSimulationRunning.value) {
+    rodManager.setExcitationParams({
+      ...currentConfig.value,
+      frequency: frequency
+    })
+  }
+  
+  // 更新控制面板中的实时频率显示
+  if (vibrationControls.value) {
+    vibrationControls.value.updateCurrentAudioFrequency(frequency)
+  }
+  
+  console.log(`🎵 实时频率: ${frequency.toFixed(1)}Hz`)
 }
 
 // 事件处理方法
@@ -110,9 +141,13 @@ function handleExcitationConfigUpdate(config) {
     rodManager.setExcitationParams(config)
   }
   
-  // 实时更新音频频率
-  if (audioGenerator && audioGenerator.isPlaying) {
+  // 只有在音频开启且是正弦波激励时才更新音频频率
+  if (audioEnabled.value && audioGenerator && audioGenerator.isPlaying && config.type === 'sine') {
     audioGenerator.setFrequency(config.frequency)
+  } else if (audioEnabled.value && audioGenerator && audioGenerator.isPlaying && config.type === 'sweep') {
+    // 如果正在播放且切换到扫频，重新开始扫频
+    audioGenerator.stop()
+    audioGenerator.startFrequencySweep(20, 2000, 10, 0.1)
   }
 }
 
@@ -122,13 +157,28 @@ function handleToggleSimulation(running) {
     rodManager.togglePlayPause()
   }
   
-  // 音频播放控制
-  if (audioGenerator) {
+  // 音频播放控制 - 考虑音频开关状态和激励类型
+  if (audioGenerator && audioEnabled.value) {
     audioGenerator.resumeContext() // 确保音频上下文已激活
+    
     if (running) {
-      audioGenerator.startSineWave(currentConfig.value.frequency, 0.1)
+      // 根据激励类型决定播放方式
+      if (currentConfig.value.type === 'sine') {
+        audioGenerator.startSineWave(currentConfig.value.frequency, 0.1)
+      } else if (currentConfig.value.type === 'audio') {
+        // 播放音频文件（通过AudioPlayer组件）
+        if (audioPlayer.value) {
+          audioPlayer.value.startAudioExcitation()
+        }
+      } else if (currentConfig.value.type === 'sweep') {
+        // 实现扫频功能
+        audioGenerator.startFrequencySweep(20, 2000, 10, 0.1)
+      }
     } else {
       audioGenerator.stop()
+      if (audioPlayer.value) {
+        audioPlayer.value.stopAudioExcitation()
+      }
     }
   }
 }
@@ -162,13 +212,30 @@ function handleRodSelection(index) {
 }
 
 function handleAudioSettings(enabled) {
+  audioEnabled.value = enabled
   console.log('音频设置:', enabled ? '启用' : '禁用')
+  
   if (audioGenerator) {
     if (!enabled && audioGenerator.isPlaying) {
+      // 关闭音频时停止播放
       audioGenerator.stop()
     } else if (enabled && isSimulationRunning.value) {
-      audioGenerator.startSineWave(currentConfig.value.frequency, 0.1)
+      // 开启音频且模拟正在运行时开始播放
+      if (currentConfig.value.type === 'sine') {
+        audioGenerator.startSineWave(currentConfig.value.frequency, 0.1)
+      } else if (currentConfig.value.type === 'audio') {
+        if (audioPlayer.value) {
+          audioPlayer.value.startAudioExcitation()
+        }
+      }
     }
+  }
+  
+  // 同时控制AudioPlayer组件的音频播放
+  if (audioPlayer.value) {
+    audioPlayer.value.setAudioEnabled(enabled)
+    // 确保AudioPlayer有频率变化回调
+    audioPlayer.value.setFrequencyChangeCallback(handleAudioFrequencyChange)
   }
 }
 

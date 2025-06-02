@@ -119,6 +119,8 @@ const isProcessing = ref(false)
 const isPlaying = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
+const isAudioEnabled = ref(true)
+const isExcitationMode = ref(false)
 
 // 音频相关
 let audioContext = null
@@ -127,6 +129,7 @@ let analyser = null
 let gainNode = null
 let startTime = 0
 let pauseTime = 0
+let onFrequencyChange = null // 频率变化回调函数
 
 // 动画帧
 let animationFrame = null
@@ -336,6 +339,14 @@ function updateProgress() {
   // 绘制实时频谱
   drawSpectrum()
   
+  // 如果在激励模式，分析并传递主导频率
+  if (isExcitationMode.value && onFrequencyChange) {
+    const dominantFreq = getDominantFrequency()
+    if (dominantFreq && dominantFreq.amplitude > 0.1) { // 只有足够强的信号才传递
+      onFrequencyChange(dominantFreq.frequency)
+    }
+  }
+  
   animationFrame = requestAnimationFrame(updateProgress)
 }
 
@@ -487,11 +498,124 @@ function onWaveformHover(event) {
   // 可以添加鼠标悬停显示时间信息的功能
 }
 
+// 音频激励相关方法
+function startAudioExcitation() {
+  if (!audioBuffer.value || !isAudioEnabled.value) {
+    console.warn('无音频缓冲区或音频已禁用，无法开始激励')
+    return false
+  }
+  
+  isExcitationMode.value = true
+  
+  // 如果不在播放状态，开始播放
+  if (!isPlaying.value) {
+    startPlayback()
+  }
+  
+  console.log('🎵 开始音频激励模式')
+  return true
+}
+
+function stopAudioExcitation() {
+  isExcitationMode.value = false
+  
+  // 停止播放
+  if (isPlaying.value) {
+    stopPlayback()
+  }
+  
+  console.log('⏹️ 停止音频激励模式')
+}
+
+function setAudioEnabled(enabled) {
+  isAudioEnabled.value = enabled
+  
+  // 如果禁用音频且正在激励模式，停止激励
+  if (!enabled && isExcitationMode.value) {
+    stopAudioExcitation()
+  }
+  
+  console.log('🔊 音频激励', enabled ? '启用' : '禁用')
+}
+
+// 获取当前音频的主要频率成分（用于振动分析）
+function getAudioFrequencyData() {
+  if (!analyser || !isPlaying.value) return null
+  
+  const bufferLength = analyser.frequencyBinCount
+  const dataArray = new Uint8Array(bufferLength)
+  analyser.getByteFrequencyData(dataArray)
+  
+  // 找到主要频率成分
+  const sampleRate = audioContext.sampleRate
+  const frequencies = []
+  const threshold = 50 // 频率强度阈值
+  
+  for (let i = 0; i < bufferLength; i++) {
+    if (dataArray[i] > threshold) {
+      const frequency = (i * sampleRate) / (2 * bufferLength)
+      frequencies.push({
+        frequency: frequency,
+        amplitude: dataArray[i] / 255.0
+      })
+    }
+  }
+  
+  // 按幅度排序，返回前5个主要频率
+  return frequencies
+    .sort((a, b) => b.amplitude - a.amplitude)
+    .slice(0, 5)
+}
+
+// 设置频率变化回调函数
+function setFrequencyChangeCallback(callback) {
+  onFrequencyChange = callback
+}
+
+// 获取当前音频的主导频率
+function getDominantFrequency() {
+  if (!analyser || !isPlaying.value) return null
+  
+  const bufferLength = analyser.frequencyBinCount
+  const dataArray = new Uint8Array(bufferLength)
+  analyser.getByteFrequencyData(dataArray)
+  
+  // 找到峰值频率
+  let maxAmplitude = 0
+  let dominantIndex = 0
+  
+  for (let i = 0; i < bufferLength; i++) {
+    if (dataArray[i] > maxAmplitude) {
+      maxAmplitude = dataArray[i]
+      dominantIndex = i
+    }
+  }
+  
+  // 计算频率
+  const sampleRate = audioContext.sampleRate
+  const dominantFreq = (dominantIndex * sampleRate) / (2 * bufferLength)
+  
+  return {
+    frequency: dominantFreq,
+    amplitude: maxAmplitude / 255.0
+  }
+}
+
 // 监听窗口大小变化
 watch([waveformContainer, spectrumContainer], () => {
   initCanvas()
   if (audioBuffer.value) {
     drawWaveform()
   }
+})
+
+// 暴露方法供父组件调用
+defineExpose({
+  startAudioExcitation,
+  stopAudioExcitation,
+  setAudioEnabled,
+  getAudioFrequencyData,
+  setFrequencyChangeCallback,
+  getDominantFrequency
 })
 </script> 
