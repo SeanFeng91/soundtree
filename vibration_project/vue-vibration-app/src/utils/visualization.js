@@ -83,6 +83,10 @@ class Visualization {
         }];
 
         Plotly.newPlot(this.waveformContainer, data, layout, config);
+        const waveformPlotDiv = document.getElementById(this.waveformContainer);
+        if (waveformPlotDiv) {
+            Plotly.Plots.resize(waveformPlotDiv); // Force resize
+        }
     }
 
     /**
@@ -95,17 +99,18 @@ class Visualization {
                 font: { color: '#f3f4f6', size: 14 }
             },
             xaxis: {
-                title: '杆件编号',
+                title: '杆件长度 (mm)',
                 color: '#d1d5db',
                 gridcolor: '#374151',
                 showgrid: true,
-                dtick: 1
+                autorange: true
             },
             yaxis: {
                 title: '放大因子',
                 color: '#d1d5db',
                 gridcolor: '#374151',
-                showgrid: true
+                showgrid: true,
+                autorange: true
             },
             plot_bgcolor: '#1f2937',
             paper_bgcolor: '#1f2937',
@@ -130,6 +135,10 @@ class Visualization {
         }];
 
         Plotly.newPlot(this.frequencyContainer, data, layout, config);
+        const frequencyPlotDiv = document.getElementById(this.frequencyContainer);
+        if (frequencyPlotDiv) {
+            Plotly.Plots.resize(frequencyPlotDiv); // Force resize
+        }
     }
 
     /**
@@ -145,13 +154,15 @@ class Visualization {
                 title: '杆长 (mm)',
                 color: '#d1d5db',
                 gridcolor: '#374151',
-                showgrid: true
+                showgrid: true,
+                autorange: true // Added for consistency
             },
             yaxis: {
                 title: '固有频率 (Hz)',
                 color: '#d1d5db',
                 gridcolor: '#374151',
-                showgrid: true
+                showgrid: true,
+                autorange: true // Added for consistency
             },
             plot_bgcolor: '#1f2937',
             paper_bgcolor: '#1f2937',
@@ -192,7 +203,11 @@ class Visualization {
             }
         ];
 
-        Plotly.newPlot('resonance-plot', data, layout, config);
+        Plotly.newPlot(this.resonanceContainer, data, layout, config);
+        const resonancePlotDiv = document.getElementById(this.resonanceContainer);
+        if (resonancePlotDiv) {
+            Plotly.Plots.resize(resonancePlotDiv); // Force resize
+        }
     }
 
     /**
@@ -306,7 +321,7 @@ class Visualization {
 
     /**
      * 更新频率响应图 (节流)
-     * @param {Array} frequencyData - 频率数据 [{rodIndex, frequency, amplitude, isResonant}]
+     * @param {Array} frequencyData - 频率数据 [{length, amplitude, isResonant}]
      */
     updateFrequencyPlot(frequencyData) {
         const now = Date.now();
@@ -320,13 +335,13 @@ class Visualization {
             return;
         }
 
-        const rodNumbers = frequencyData.map(d => d.rodIndex);
+        const rodLengths = frequencyData.map(d => d.length);
         const amplitudes = frequencyData.map(d => d.amplitude);
-        const colors = frequencyData.map(d => d.isResonant ? '#ef4444' : '#10b981'); // 红色共振，绿色正常
+        const colors = frequencyData.map(d => d.isResonant ? '#ef4444' : '#10b981');
 
         const updatedTrace = {
-            x: rodNumbers, // Direct array
-            y: amplitudes, // Direct array
+            x: rodLengths, 
+            y: amplitudes, 
             type: 'scatter',
             mode: 'lines+markers',
             marker: { 
@@ -334,11 +349,16 @@ class Visualization {
                 size: 8,
                 line: { color: 'rgba(255,255,255,0.3)', width: 1 }
             },
-            name: '放大因子' // Match init
+            name: '放大因子'
         };
         
-        // Pass data as an array of traces
-        Plotly.react(this.frequencyContainer, [updatedTrace]).catch(err => console.error('Plotly react error (frequency):', err));
+        const layoutUpdate = {
+            'yaxis.autorange': true,
+            'xaxis.autorange': true
+        };
+
+        Plotly.react(this.frequencyContainer, [updatedTrace], layoutUpdate)
+            .catch(err => console.error('Plotly react error (frequency):', err));
     }
 
     /**
@@ -576,6 +596,9 @@ class Visualization {
         }
         if (document.getElementById(this.frequencyContainer)) {
             Plotly.Plots.resize(this.frequencyContainer);
+        }
+        if (document.getElementById(this.resonanceContainer)) {
+            Plotly.Plots.resize(this.resonanceContainer);
         }
     }
 

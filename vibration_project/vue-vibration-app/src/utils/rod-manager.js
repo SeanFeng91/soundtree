@@ -270,125 +270,122 @@ class RodManager {
      * 更新杆件变形
      */
     updateRodDeformation() {
-        // 如果激励类型是音频文件，但没有音频文件，则不应该有振动
         if (this.excitationType === 'audio') {
-            // 检查是否有可用的音频文件
             if (typeof window !== 'undefined' && window.audioPlayer && 
                 (!window.audioPlayer.hasAudioFile || !window.audioPlayer.hasAudioFile())) {
-                // 没有音频文件时，保持杆件静止
                 this.rods.forEach((rod, index) => {
                     const originalPos = this.originalPositions[index];
                     const positions = rod.geometry.attributes.position;
-                    
-                    // 恢复原始位置（无振动）
                     for (let i = 0; i < positions.count; i++) {
                         positions.setX(i, originalPos.getX(i));
                         positions.setY(i, originalPos.getY(i));
                         positions.setZ(i, originalPos.getZ(i));
                     }
-                    
                     positions.needsUpdate = true;
                     rod.geometry.computeVertexNormals();
-                    
-                    // 恢复原始颜色
                     const userData = rod.userData;
                     rod.material.color.setHex(userData.material.color);
                     rod.material.emissive.setHex(0x000000);
                 });
-                
-                // 清空可视化数据
                 if (typeof window !== 'undefined' && window.visualization) {
                     window.visualization.clearWaveformPlot();
-                    window.visualization.clearFrequencyPlot();
+                    // No frequency plot data to clear if we return here, 
+                    // or clear it with empty data if it was previously populated.
+                    window.visualization.updateFrequencyPlot([]); 
+                    window.visualization.updateResonancePlot([], 0);
                 }
                 return;
             }
         }
         
-        const visualizationData = {
-            waveformData: [],
-            frequencyData: []
-        };
-        
+        const allRodsWaveformDataForThisTick = [];
+        const rodSpecificMetrics = [];
+
         this.rods.forEach((rod, index) => {
             const userData = rod.userData;
             const originalPos = this.originalPositions[index];
             const positions = rod.geometry.attributes.position;
-
-            // 获取该杆件的第一阶自然频率
             const firstModeFreq = userData.naturalFrequencies[0]?.frequency || 100;
-            
-            // 计算频率比和共振效应
             const frequencyRatio = this.excitationFreq / firstModeFreq;
             const dampingRatio = this.damping;
-            
-            // 计算幅度放大因子（共振时会显著增大）
             const denominator = Math.sqrt(
                 Math.pow(1 - frequencyRatio * frequencyRatio, 2) + 
                 Math.pow(2 * dampingRatio * frequencyRatio, 2)
             );
-            const magnificationFactor = 1 / Math.max(denominator, 0.01); // 防止除零
-            
-            // 计算相位延迟
+            const magnificationFactor = 1 / Math.max(denominator, 0.01);
             const phaseDelay = Math.atan2(
                 2 * dampingRatio * frequencyRatio, 
                 1 - frequencyRatio * frequencyRatio
             );
-            
-            // 该杆件的实际振动幅度（考虑共振效应）
-            const effectiveAmplitude = this.excitationAmp * magnificationFactor * 0.001; // 转换为米
-            
-            // 限制最大振幅以避免过度变形
-            const maxAmplitude = userData.length * 0.1; // 最大不超过杆长的10%
+            const effectiveAmplitude = this.excitationAmp * magnificationFactor * 0.001;
+            const maxAmplitude = userData.length * 0.1;
             const limitedAmplitude = Math.min(effectiveAmplitude, maxAmplitude);
-            
-            // 为每个杆件生成波形数据点
-            const currentAmplitude = limitedAmplitude * Math.sin(2 * Math.PI * this.excitationFreq * this.currentTime - phaseDelay);
-            visualizationData.waveformData.push({
+            const currentDeformationAmplitude = limitedAmplitude * Math.sin(2 * Math.PI * this.excitationFreq * this.currentTime - phaseDelay);
+
+            allRodsWaveformDataForThisTick.push({
                 rodIndex: index,
                 time: this.currentTime,
-                amplitude: currentAmplitude
+                amplitude: currentDeformationAmplitude
             });
             
-            // 添加频率响应数据
-            visualizationData.frequencyData.push({
-                rodIndex: index + 1, // 杆件编号从1开始
-                frequency: firstModeFreq,
-                amplitude: magnificationFactor,
-                isResonant: Math.abs(this.excitationFreq - firstModeFreq) / firstModeFreq <= 0.08
+            const isRodResonant = vibrationCalculator.isResonant(this.excitationFreq, firstModeFreq, 0.08);
+            const rodLengthMm = Math.round(userData.length * 1000);
+
+            rodSpecificMetrics.push({
+                lengthMm: rodLengthMm,
+                magnification: magnificationFactor,
+                isResonant: isRodResonant,
+                naturalFreq: firstModeFreq
             });
 
             for (let i = 0; i < positions.count; i++) {
                 const origX = originalPos.getX(i);
                 const origY = originalPos.getY(i);
                 const origZ = originalPos.getZ(i);
-
-                // 将Y坐标转换为沿杆长度的位置（0到L）
                 const positionAlongRod = (origY + userData.length / 2);
                 const normalizedPosition = positionAlongRod / userData.length;
-                
-                // 悬臂梁第一阶模态形状函数（简化）
-                // 实际的模态形状更复杂，这里用简化的正弦函数
-                const modeShape = normalizedPosition * normalizedPosition; // 二次函数近似悬臂梁形状
-                
-                // 计算该点的位移（在X方向，模拟侧向弯曲）
-                const displacement = currentAmplitude * modeShape;
-
-                // 应用位移（主要在X方向弯曲）
+                const modeShape = normalizedPosition * normalizedPosition;
+                const displacement = currentDeformationAmplitude * modeShape;
                 positions.setX(i, origX + displacement);
                 positions.setY(i, origY);
                 positions.setZ(i, origZ);
             }
-
             positions.needsUpdate = true;
             rod.geometry.computeVertexNormals();
-
-            // 检查共振状态（用于可视化效果）
-            this.updateRodResonanceStatus(rod, index);
+            this.updateRodResonanceStatus(rod, index); // Visually update rod color
         });
+
+        const groupedData = new Map();
+        rodSpecificMetrics.forEach(metric => {
+            if (!groupedData.has(metric.lengthMm)) {
+                groupedData.set(metric.lengthMm, {
+                    length: metric.lengthMm,
+                    magnifications: [],
+                    isResonantFlags: [],
+                    naturalFrequency: metric.naturalFreq
+                });
+            }
+            groupedData.get(metric.lengthMm).magnifications.push(metric.magnification);
+            groupedData.get(metric.lengthMm).isResonantFlags.push(metric.isResonant);
+        });
+
+        const finalFrequencyData = [];
+        groupedData.forEach(group => {
+            const maxMagnification = group.magnifications.length > 0 ? Math.max(...group.magnifications) : 0;
+            const isGroupResonant = group.isResonantFlags.some(flag => flag === true);
+            finalFrequencyData.push({
+                length: group.length,
+                amplitude: maxMagnification,
+                isResonant: isGroupResonant,
+                naturalFrequency: group.naturalFrequency
+            });
+        });
+        finalFrequencyData.sort((a, b) => a.length - b.length);
         
-        // 更新可视化图表
-        this.updateVisualization(visualizationData);
+        this.updateVisualization({
+            waveformData: allRodsWaveformDataForThisTick, // Pass all individual rod waveform points
+            frequencyData: finalFrequencyData // Pass grouped data for frequency and resonance plots
+        });
     }
     
     /**
@@ -397,40 +394,16 @@ class RodManager {
      */
     updateVisualization(data) {
         if (typeof window !== 'undefined' && window.visualization) {
-            
+            const rodCountForPerformanceCheck = this.displayModeConfig.mode === 'linear' ? this.baseRodConfig.count : (this.displayModeConfig.gridX * this.displayModeConfig.gridY);
             const rodCountThreshold = 10050; 
-            if (this.rods.length > rodCountThreshold) {
-                console.warn(`[RodManager.updateVisualization] Rod count (${this.rods.length}) exceeds threshold (${rodCountThreshold}). Temporarily pausing waveform and frequency plot updates for performance.`);
-                
-                if (data.frequencyData.length > 0) {
-                    const resonanceDataForPlot = data.frequencyData.map(freqDataItem => {
-                        const actualRodIndex = freqDataItem.rodIndex - 1; // rodIndex from frequencyData is 1-based
-                        let rodLengthMm;
+            
+            // Check if we should pause plot updates due to high rod count
+            // This threshold logic might need adjustment based on the new grouped data size for frequency/resonance plots
+            // For now, let's assume the primary bottleneck was individual rod processing for these plots.
+            // The waveform plot still processes all data points if not optimized further.
 
-                        if (this.rods[actualRodIndex] && this.rods[actualRodIndex].userData && typeof this.rods[actualRodIndex].userData.length === 'number') {
-                            rodLengthMm = this.rods[actualRodIndex].userData.length * 1000; // userData.length is in meters
-                        } else {
-                            console.warn(`[RodManager.updateVisualization] Could not get length for rod index ${actualRodIndex} for resonance plot. Using fallback/default length.`);
-                            if (this.displayModeConfig.mode === 'linear') {
-                                rodLengthMm = this.baseRodConfig.startLength + actualRodIndex * this.baseRodConfig.lengthStep;
-                            } else {
-                                // For array/sculpture, if specific rod data is missing, use a default or configured base height.
-                                rodLengthMm = this.displayModeConfig.baseHeight || this.baseRodConfig.startLength; 
-                            }
-                        }
-                        return {
-                            length: rodLengthMm,
-                            naturalFreq: freqDataItem.frequency,
-                            isResonant: freqDataItem.isResonant
-                        };
-                    });
-                    window.visualization.updateResonancePlot(resonanceDataForPlot, this.excitationFreq);
-                }
-                return; 
-            }
-
-            // 为每个杆件单独更新波形数据
-            if (data.waveformData.length > 0) {
+            // Waveform data update (per rod, as before)
+            if (data.waveformData && data.waveformData.length > 0) {
                 const rodWaveformMap = new Map();
                 data.waveformData.forEach(point => {
                     if (!rodWaveformMap.has(point.rodIndex)) {
@@ -447,34 +420,28 @@ class RodManager {
                 });
             }
             
-            // 更新频率响应图
-            if (data.frequencyData.length > 0) {
-                window.visualization.updateFrequencyPlot(data.frequencyData);
+            // Frequency plot update (uses grouped data)
+            if (data.frequencyData) { // Can be empty array
+                 // If performance check is still needed for frequency/resonance, it would be based on data.frequencyData.length
+                if (rodCountForPerformanceCheck > rodCountThreshold && data.frequencyData.length > rodCountThreshold * 0.1 /* arbitrary factor for grouped data */) {
+                    console.warn(`[RodManager.updateVisualization] Grouped frequency data still large. Skipping update.`);
+                } else {
+                    window.visualization.updateFrequencyPlot(data.frequencyData);
+                }
             }
             
-            // 更新共振分析图表
-            if (data.frequencyData.length > 0) {
-                 const resonanceDataForPlot = data.frequencyData.map(freqDataItem => {
-                    const actualRodIndex = freqDataItem.rodIndex - 1; // rodIndex from frequencyData is 1-based
-                    let rodLengthMm;
-
-                    if (this.rods[actualRodIndex] && this.rods[actualRodIndex].userData && typeof this.rods[actualRodIndex].userData.length === 'number') {
-                        rodLengthMm = this.rods[actualRodIndex].userData.length * 1000; // userData.length is in meters
-                    } else {
-                        console.warn(`[RodManager.updateVisualization] Could not get length for rod index ${actualRodIndex} for resonance plot. Using fallback/default length.`);
-                         if (this.displayModeConfig.mode === 'linear') {
-                            rodLengthMm = this.baseRodConfig.startLength + actualRodIndex * this.baseRodConfig.lengthStep;
-                        } else {
-                            rodLengthMm = this.displayModeConfig.baseHeight || this.baseRodConfig.startLength; 
-                        }
-                    }
-                    return {
-                        length: rodLengthMm,
-                        naturalFreq: freqDataItem.frequency,
-                        isResonant: freqDataItem.isResonant
-                    };
-                });
-                window.visualization.updateResonancePlot(resonanceDataForPlot, this.excitationFreq);
+            // Resonance plot update (uses grouped data, transformed)
+            if (data.frequencyData) { // Can be empty array
+                const resonanceDataForPlot = data.frequencyData.map(item => ({
+                    length: item.length,
+                    naturalFreq: item.naturalFrequency,
+                    isResonant: item.isResonant 
+                }));
+                 if (rodCountForPerformanceCheck > rodCountThreshold && resonanceDataForPlot.length > rodCountThreshold * 0.1) {
+                     console.warn(`[RodManager.updateVisualization] Grouped resonance data still large. Skipping update.`);
+                 } else {
+                    window.visualization.updateResonancePlot(resonanceDataForPlot, this.excitationFreq);
+                 }
             }
         }
     }

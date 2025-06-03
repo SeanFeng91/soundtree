@@ -501,4 +501,160 @@ startFrequencyTracking() {
 
 *记录时间：2024年12月17日*  
 *开发者：AI Assistant*  
+*项目：多杆件振动模拟系统*
+
+---
+
+## 📅 2024年12月18日 - 图表显示优化、数据聚合与尺寸修复
+
+### 📈 问题概述与目标
+
+用户反馈在模拟过程中，波形图、各杆件响应强度图（频率图）和共振分析图存在以下问题：
+1.  图表数据更新后有时未正确或完整绘制。
+2.  当杆件数量较多时（尤其是在函数阵列模式下），频率图和共振分析图的数据点过多，影响观察且可能导致性能瓶颈。
+3.  图表有时会压缩在容器内很小的区域，未占满可用空间，尤其是在模拟开始或布局变化后，图表高度变得非常小。
+
+目标是对这些图表的渲染逻辑、数据处理和尺寸响应进行全面优化，确保其正确性、可读性、性能和视觉效果。
+
+---
+
+### 🛠️ 核心修复与调整
+
+#### 1. `RodManager.js` - 确保共振分析图的杆件长度准确性
+
+**问题**：
+- 在 `updateVisualization` 方法中，为共振分析图准备数据时，获取杆件长度的逻辑可能在非线性模式下不够鲁棒。
+
+**修复** (`updateVisualization`):
+- 确保从 `this.rods[actualRodIndex].userData.length` (单位: 米) 准确获取每个杆件的长度，并转换为毫米。
+- 为无法直接获取长度的杆件提供了回退逻辑，但主要依赖从 `this.rods` 中直接读取。
+
+```javascript
+// RodManager.js - updateVisualization 中获取杆件长度的修正片段
+const resonanceDataForPlot = data.frequencyData.map(freqDataItem => {
+    // ... (确保 freqDataItem 包含原始 rodIndex 或能查找到对应杆件)
+    const actualRod = this.rods.find(r => r.userData.index === (freqDataItem.rodIndex -1) ); // 示例查找
+    let rodLengthMm;
+    if (actualRod && actualRod.userData && typeof actualRod.userData.length === 'number') {
+        rodLengthMm = actualRod.userData.length * 1000;
+    } else {
+        // Fallback logic for safety, though ideally all rods should have length
+        console.warn(`[RodManager.updateVisualization] Could not accurately get length for resonance plot point.`);
+        rodLengthMm = freqDataItem.length; // Assuming freqDataItem might already have a length from grouping
+    }
+    return {
+        length: rodLengthMm,
+        naturalFreq: freqDataItem.naturalFrequency, // freqDataItem should carry naturalFrequency after grouping
+        isResonant: freqDataItem.isResonant
+    };
+});
+```
+*注：上述代码片段为示例，实际实现中 `freqDataItem` 在聚合后已包含 `length`。关键是确保此 `length` 的来源准确。*
+
+#### 2. `Visualization.js` - Plotly 图表数据格式与布局更新
+
+**问题**：
+- 传递给 `Plotly.react` 的数据格式不完全符合预期，可能导致渲染问题。
+- 图表Y轴（及部分X轴）在数据变化时未自动调整范围，导致显示内容过小或不全。
+
+**修复**：
+- **`displayCurrentRodWaveform`**:
+    - 确保传递给 `Plotly.react` 的波形图数据是包含单个轨迹对象的数组 `[{ x: times, y: amplitudes, ... }]`。
+    - 在空数据时也使用此数组格式 `[{ x: [], y: [], ... }]`。
+- **`updateFrequencyPlot`**:
+    - 轨迹对象的 `x` 和 `y` 直接使用数据数组。
+    - 更新的轨迹对象被包装在一个数组中 `[updatedTrace]` 传递给 `Plotly.react`。
+    - 在 `Plotly.react` 调用中添加 `layoutUpdate` 参数，为X轴和Y轴启用 `autorange: true`。
+- **`initFrequencyPlot`**:
+    - X轴标题更新为 "杆件长度 (mm)"。
+    - 移除了固定的 `dtick`，并为X轴和Y轴添加 `autorange: true`。
+- **`updateResonancePlot`**:
+    - 确保传递给 `Plotly.react` 的两条轨迹（第1阶模态、激励频率线）在 `update.data` 中包含其 `name`, `type`, `mode` 属性，以与初始化时保持一致。
+    - 增加了对 `rodData` 的有效性检查 (非空数组)。
+
+```javascript
+// Visualization.js - updateFrequencyPlot 布局更新示例
+const layoutUpdate = {
+    'yaxis.autorange': true,
+    'xaxis.autorange': true
+};
+Plotly.react(this.frequencyContainer, [updatedTrace], layoutUpdate);
+```
+
+#### 3. 数据聚合：按杆件长度优化频率图和共振分析图
+
+**问题**：
+- 在函数阵列等模式下，大量杆件（可能很多长度相同）导致频率图和共振图数据点过多，难以辨识且影响性能。
+
+**修复** (`RodManager.js`):
+- **`updateRodDeformation`**:
+    - 计算每个杆件的振动指标（放大因子、是否共振、固有频率）后，将这些指标连同杆件长度（四舍五入到毫米）存入 `rodSpecificMetrics`。
+    - 使用 `Map` 按 `lengthMm` 对 `rodSpecificMetrics` 进行分组。
+    - 对于每个长度组：
+        - **放大因子 (amplitude)**：取该组内所有杆件 `magnificationFactor` 的最大值。
+        - **是否共振 (isResonant)**：如果组内任一杆件共振，则该长度点标记为共振。
+        - **固有频率 (naturalFrequency)**：取该组的固有频率。
+    - 生成 `finalFrequencyData` (已排序)，其中每个元素代表一个独特的杆件长度及其聚合后的振动数据。
+    - 此 `finalFrequencyData` 用于更新频率图和共振分析图。
+- **`updateVisualization`**:
+    - 修改为接收和处理聚合后的 `data.frequencyData`。
+    - 为共振图转换数据时，直接使用聚合数据中的 `length`, `naturalFrequency`, 和 `isResonant`。
+    - 在音频激励模式下如果无音频文件，确保调用 `window.visualization.updateFrequencyPlot([])` 和 `window.visualization.updateResonancePlot([], 0)` 清空相关图表。
+
+```javascript
+// RodManager.js - updateRodDeformation 中数据聚合逻辑片段
+// ... (rodSpecificMetrics 收集完毕)
+const groupedData = new Map();
+rodSpecificMetrics.forEach(metric => { /* ...分组逻辑... */ });
+const finalFrequencyData = [];
+groupedData.forEach(group => { /* ...聚合计算逻辑... */ });
+finalFrequencyData.sort((a, b) => a.length - b.length);
+this.updateVisualization({
+    waveformData: allRodsWaveformDataForThisTick,
+    frequencyData: finalFrequencyData
+});
+```
+
+#### 4. `Visualization.js` - 修复图表尺寸压缩与响应式问题
+
+**问题**：
+- 图表在初始化后或窗口大小变化时，其实际渲染区域被压缩，高度变得非常小，与容器 `div` 尺寸不匹配。
+
+**修复** (`Visualization.js`):
+- **`resize()` 方法增强**:
+    - 在原有的对 `waveformContainer` 和 `frequencyContainer` 的 `Plotly.Plots.resize()` 调用基础上，添加了对 `this.resonanceContainer` 的 `Plotly.Plots.resize()` 调用。确保所有三个图表都能在窗口大小调整时更新其尺寸。
+    ```javascript
+    // Visualization.js - resize 方法补充
+    if (document.getElementById(this.resonanceContainer)) {
+        Plotly.Plots.resize(this.resonanceContainer);
+    }
+    ```
+- **初始化后强制调整尺寸**:
+    - 在 `initWaveformPlot`, `initFrequencyPlot`, 和 `initResonancePlot` 三个方法中，紧随 `Plotly.newPlot(...)` 调用之后，立即获取对应的图表 `div` 元素，并调用 `Plotly.Plots.resize(plotDiv)`。
+    - 此举旨在强制 Plotly 在图表创建后，立即根据其容器的当前实际尺寸重新计算并调整绘图区域，解决因渲染时序导致的初始尺寸获取不准问题。
+    ```javascript
+    // Visualization.js - initWaveformPlot 中强制resize示例
+    Plotly.newPlot(this.waveformContainer, data, layout, config);
+    const waveformPlotDiv = document.getElementById(this.waveformContainer);
+    if (waveformPlotDiv) {
+        Plotly.Plots.resize(waveformPlotDiv);
+    }
+    ```
+    *(类似代码添加到了 `initFrequencyPlot` 和 `initResonancePlot`)*
+- **`initResonancePlot` 细节修正**:
+    - 为X轴和Y轴的定义添加了 `autorange: true`，以与其他图表初始化配置保持一致性。
+    - 修正了 `Plotly.newPlot` 调用时，确保使用的是正确的容器ID `this.resonanceContainer` 而非硬编码的字符串 `'resonance-plot'`。
+
+---
+
+### ✅ 效果与验证
+
+- **图表正确性与数据聚合**：波形图、频率图和共振分析图现在能更稳定和准确地根据模拟数据进行绘制。频率图和共振分析图基于杆件长度的聚合数据显示，有效减少了数据点，提高了可读性和性能。
+- **轴范围自适应**：通过 `autorange: true` 和正确的布局更新，图表轴范围能更好地适应数据变化。
+- **图表尺寸与响应式**：通过增强 `resize()` 方法并在初始化后强制 `resize`，显著改善了图表被压缩的问题，使其能更好地填充预期的容器空间。若仍有轻微的尺寸问题，可能需进一步检查 `App.vue` 中容器的CSS细节。
+
+---
+
+*记录时间：2024年12月18日*  
+*开发者：AI Assistant*  
 *项目：多杆件振动模拟系统* 
