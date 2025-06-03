@@ -7,12 +7,22 @@ class Visualization {
     constructor() {
         this.waveformPlot = null;
         this.frequencyPlot = null;
+        this.resonancePlot = null; // 添加对共振图的引用
         this.waveformContainer = 'waveform-plot';
         this.frequencyContainer = 'frequency-plot';
+        this.resonanceContainer = 'resonance-plot'; // 添加共振图容器ID
         this.timeWindow = 10; // 10秒时间窗口
         this.waveformData = new Map(); // 存储每个杆件的波形数据
         this.currentSelectedRod = 0; // 当前选中的杆件
         this.maxDataPoints = 1000; // 最大数据点数量，避免性能问题
+
+        // 图表节流控制
+        this.lastPlotUpdateTime = { 
+            waveform: 0, 
+            frequency: 0, 
+            resonance: 0 
+        };
+        this.plotUpdateInterval = 200; // ms, 图表更新最小间隔 (5 FPS for charts)
     }
 
     /**
@@ -227,35 +237,48 @@ class Visualization {
     }
     
     /**
-     * 显示当前选中杆件的波形数据
+     * 显示当前选中杆件的波形数据 (节流)
      */
     displayCurrentRodWaveform() {
+        const now = Date.now();
+        if (now - this.lastPlotUpdateTime.waveform < this.plotUpdateInterval) {
+            return; // 节流，不到更新时间
+        }
+        this.lastPlotUpdateTime.waveform = now;
+
         const currentData = this.waveformData.get(this.currentSelectedRod) || [];
         
         if (currentData.length === 0) {
-            this.clearWaveformPlot();
+            // 如果没有数据，也需要调用Plotly来清空，但可以减少调用频率
+            Plotly.react(this.waveformContainer, [{
+                x: [], y: [], type: 'scatter', mode: 'lines',
+                line: { color: '#60a5fa', width: 2 }, name: '波形'
+            }]).catch(err => console.error('Plotly react error (waveform clear):', err));
             return;
         }
         
         const times = currentData.map(d => d.time);
         const amplitudes = currentData.map(d => d.amplitude);
         
-        // 计算当前时间窗口范围
         const currentTime = times.length > 0 ? Math.max(...times) : 0;
         const windowStart = Math.max(0, currentTime - this.timeWindow);
         const windowEnd = windowStart + this.timeWindow;
         
-        const update = {
-            x: [times],
-            y: [amplitudes]
-        };
-        
+        const traceData = [{
+            x: times,
+            y: amplitudes,
+            type: 'scatter',
+            mode: 'lines',
+            line: { color: '#60a5fa', width: 2 },
+            name: '波形'
+        }];
+
         const layoutUpdate = {
-            'xaxis.range': [windowStart, windowEnd]
+            'xaxis.range': [windowStart, windowEnd],
+            'yaxis.autorange': true // 保持Y轴自动范围
         };
-        
-        Plotly.restyle(this.waveformContainer, update, [0]);
-        Plotly.relayout(this.waveformContainer, layoutUpdate);
+
+        Plotly.react(this.waveformContainer, traceData, layoutUpdate).catch(err => console.error('Plotly react error (waveform):', err));
     }
     
     /**
@@ -282,26 +305,40 @@ class Visualization {
     }
 
     /**
-     * 更新频谱图
-     * @param {Array} frequencyData - 频谱数据 [{rodIndex, frequency, amplitude, isResonant}]
+     * 更新频率响应图 (节流)
+     * @param {Array} frequencyData - 频率数据 [{rodIndex, frequency, amplitude, isResonant}]
      */
     updateFrequencyPlot(frequencyData) {
+        const now = Date.now();
+        if (now - this.lastPlotUpdateTime.frequency < this.plotUpdateInterval) {
+            return; // 节流
+        }
+        this.lastPlotUpdateTime.frequency = now;
+
         if (!frequencyData || frequencyData.length === 0) {
             this.clearFrequencyPlot();
             return;
         }
 
-        const rodIndices = frequencyData.map(d => d.rodIndex);
-        const magnifications = frequencyData.map(d => d.amplitude);
-        const colors = frequencyData.map(d => d.isResonant ? '#ff4444' : '#10b981');
+        const rodNumbers = frequencyData.map(d => d.rodIndex);
+        const amplitudes = frequencyData.map(d => d.amplitude);
+        const colors = frequencyData.map(d => d.isResonant ? '#ef4444' : '#10b981'); // 红色共振，绿色正常
 
-        const update = {
-            x: [rodIndices],
-            y: [magnifications],
-            'marker.color': [colors]
+        const updatedTrace = {
+            x: rodNumbers, // Direct array
+            y: amplitudes, // Direct array
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: { 
+                color: colors,
+                size: 8,
+                line: { color: 'rgba(255,255,255,0.3)', width: 1 }
+            },
+            name: '放大因子' // Match init
         };
-
-        Plotly.restyle(this.frequencyContainer, update, [0]);
+        
+        // Pass data as an array of traces
+        Plotly.react(this.frequencyContainer, [updatedTrace]).catch(err => console.error('Plotly react error (frequency):', err));
     }
 
     /**
@@ -543,29 +580,59 @@ class Visualization {
     }
 
     /**
-     * 更新共振分析图表
+     * 更新共振分析图表 (节流)
      * @param {Array} rodData - 杆件数据 [{length, naturalFreq, isResonant}]
-     * @param {number} excitationFreq - 激励频率
+     * @param {number} excitationFreq - 当前激励频率
      */
     updateResonancePlot(rodData, excitationFreq) {
-        if (!rodData || rodData.length === 0) return;
+        const now = Date.now();
+        if (now - this.lastPlotUpdateTime.resonance < this.plotUpdateInterval) {
+            return; // 节流
+        }
+        this.lastPlotUpdateTime.resonance = now;
 
-        // 提取数据
-        const lengths = rodData.map(rod => rod.length);
-        const frequencies = rodData.map(rod => rod.naturalFreq);
-        const colors = rodData.map(rod => rod.isResonant ? '#ff4444' : '#60a5fa');
+        if (!rodData || !Array.isArray(rodData) || rodData.length === 0) { // Added empty check for safety
+            console.warn('updateResonancePlot: rodData is invalid or empty', rodData);
+            // Optionally clear the plot if data is empty
+            // Plotly.react(this.resonanceContainer, [], this.resonancePlotLayout || {}); 
+            return;
+        }
 
-        // 激励频率线数据
-        const minLength = Math.min(...lengths);
-        const maxLength = Math.max(...lengths);
+        const lengths = rodData.map(r => r.length);
+        const naturalFreqs = rodData.map(r => r.naturalFreq);
+        const colors = rodData.map(r => r.isResonant ? '#ef4444' : '#60a5fa');
+        const sizes = rodData.map(r => r.isResonant ? 10 : 8);
+        const symbols = rodData.map(r => r.isResonant ? 'diamond' : 'circle');
+
+        const minLength = Math.min(...lengths, 0);
+        const maxLength = Math.max(...lengths, 100);
 
         const update = {
-            x: [lengths, [minLength, maxLength]],
-            y: [frequencies, [excitationFreq, excitationFreq]],
-            'marker.color': [colors, undefined]
+            data: [
+                { // 第1阶模态
+                    x: lengths,
+                    y: naturalFreqs,
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: '第1阶模态', // Added name
+                    marker: { color: colors, size: sizes, symbol: symbols }
+                },
+                { // 激励频率线
+                    x: [minLength, maxLength],
+                    y: [excitationFreq, excitationFreq],
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: '激励频率', // Added name
+                    line: { color: '#fbbf24', width: 3, dash: 'dash' }
+                }
+            ],
+            layout: {
+                 'xaxis.autorange': true,
+                 'yaxis.autorange': true
+            }
         };
 
-        Plotly.restyle('resonance-plot', update, [0, 1]);
+        Plotly.react(this.resonanceContainer, update.data, update.layout).catch(err => console.error('Plotly react error (resonance):', err));
     }
 }
 

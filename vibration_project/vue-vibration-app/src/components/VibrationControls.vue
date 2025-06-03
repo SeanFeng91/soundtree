@@ -2,68 +2,173 @@
   <div class="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 p-4">
     <h3 class="text-lg font-semibold text-white mb-4">振动参数控制</h3>
     
+    <!-- 显示模式配置 -->
+    <div class="mb-6">
+      <h4 class="text-md font-medium text-white mb-3">显示模式</h4>
+      <select 
+        v-model="displayModeConfig.mode"
+        class="dark-select-options w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+        @change="updateDisplayModeConfig"
+      >
+        <option value="linear">线性排列</option>
+        <option value="array">函数阵列</option>
+        <option value="sculpture">空间雕塑 (待实现)</option>
+      </select>
+
+      <!-- 线性模式提示 -->
+      <div v-if="displayModeConfig.mode === 'linear'" class="p-3 bg-white/5 rounded-lg text-sm text-gray-300">
+        <p>经典线性排列模式，杆件参数在下方"杆件配置"部分设置。</p>
+      </div>
+
+      <!-- 函数阵列模式参数 -->
+      <div v-if="displayModeConfig.mode === 'array'" class="space-y-4 p-3 bg-white/10 rounded-lg">
+        <p class="text-sm text-gray-300 mb-2">配置X-Y平面上的杆件阵列，杆件长度由函数确定。</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-white mb-1">
+              X方向数量: <span class="text-blue-400">{{ displayModeConfig.arrayGridX }}</span> (10-50)
+            </label>
+            <input 
+              v-model.number="displayModeConfig.arrayGridX"
+              type="range" min="10" max="50" 
+              class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              @input="updateDisplayModeConfig"
+            />
+          </div>
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-white mb-1">
+              Y方向数量: <span class="text-blue-400">{{ displayModeConfig.arrayGridY }}</span> (10-50)
+            </label>
+            <input 
+              v-model.number="displayModeConfig.arrayGridY"
+              type="range" min="10" max="50" 
+              class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              @input="updateDisplayModeConfig"
+            />
+          </div>
+        </div>
+        <div class="space-y-2">
+            <label class="block text-sm font-medium text-white mb-1">总杆件数: <span class="text-green-400 font-semibold">{{ displayModeConfig.arrayGridX * displayModeConfig.arrayGridY }}</span></label>
+        </div>
+        <div class="space-y-2">
+          <label class="block text-sm font-medium text-white mb-1">高度函数</label>
+          <select 
+            v-model="displayModeConfig.arrayHeightFunction"
+            class="dark-select-options w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            @change="updateDisplayModeConfig"
+          >
+            <option value="sine">正弦波: sin(πx/s) * sin(πy/s)</option>
+            <option value="gaussian">高斯: exp(-((x-c)²+(y-c)²)/f)</option>
+            <option value="ripple">波纹: sin(√((x-c)²+(y-c)²)/s)</option>
+            <option value="linear_slope">线性倾斜: (x+y)/2</option>
+            <option value="peak">山峰: cos(x/s) * cos(y/s)</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-white mb-1">
+              基础高度: <span class="text-blue-400">{{ displayModeConfig.arrayBaseHeight }}mm</span>
+            </label>
+            <input 
+              v-model.number="displayModeConfig.arrayBaseHeight"
+              type="range" min="10" max="50" 
+              class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              @input="updateDisplayModeConfig"
+            />
+          </div>
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-white mb-1">
+              变化幅度: <span class="text-blue-400">{{ displayModeConfig.arrayAmplitude }}mm</span>
+            </label>
+            <input 
+              v-model.number="displayModeConfig.arrayAmplitude"
+              type="range" min="10" max="100" 
+              class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              @input="updateDisplayModeConfig"
+            />
+          </div>
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-white mb-1">
+              缩放因子: <span class="text-blue-400">{{ displayModeConfig.arrayScaleFactor.toFixed(1) }}</span>
+            </label>
+            <input 
+              v-model.number="displayModeConfig.arrayScaleFactor"
+              type="range" min="0.1" max="3.0" step="0.1"
+              class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              @input="updateDisplayModeConfig"
+            />
+          </div>
+        </div>
+      </div>
+      
+      <!-- 雕塑模式参数 (占位) -->
+      <div v-if="displayModeConfig.mode === 'sculpture'" class="p-3 bg-white/10 rounded-lg text-sm text-gray-300">
+        <p>空间雕塑模式参数区域，待后续实现。</p>
+        <!-- 雕塑类型选择、密度、尺寸等 -->
+      </div>
+    </div>
+    
     <!-- 杆件配置 -->
     <div class="mb-6">
-      <h4 class="text-md font-medium text-white mb-3">杆件配置</h4>
+      <h4 class="text-md font-medium text-white mb-3">
+        基础杆件参数 
+        <span class="text-xs text-gray-400">
+          (线性模式时使用, 阵列/雕塑模式下部分参数将由模式配置覆盖或调整)
+        </span>
+      </h4>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- 杆件数量 -->
-        <div class="space-y-2">
+        <!-- 杆件数量 (仅线性模式) -->
+        <div class="space-y-2" :class="{ 'opacity-50': displayModeConfig.mode !== 'linear' }">
           <label class="block text-sm font-medium text-white mb-1">
-            杆件数量: <span class="text-blue-400">{{ rodConfig.count }}根</span>
+            杆件数量 (线性): <span class="text-blue-400">{{ rodConfig.count }}根</span>
           </label>
           <input 
             v-model.number="rodConfig.count"
-            type="range" 
-            min="1" 
-            max="20" 
+            type="range" min="1" max="20" 
             class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
             @input="updateRodConfig"
+            :disabled="displayModeConfig.mode !== 'linear'"
           />
         </div>
         
-        <!-- 起始长度 -->
-        <div class="space-y-2">
+        <!-- 起始长度 (线性模式) -->
+        <div class="space-y-2" :class="{ 'opacity-50': displayModeConfig.mode !== 'linear' }">
           <label class="block text-sm font-medium text-white mb-1">
-            起始长度: <span class="text-blue-400">{{ rodConfig.startLength }}mm</span>
+            起始长度 (线性): <span class="text-blue-400">{{ rodConfig.startLength }}mm</span>
           </label>
           <input 
             v-model.number="rodConfig.startLength"
-            type="range" 
-            min="20" 
-            max="100" 
+            type="range" min="20" max="100" 
             class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
             @input="updateRodConfig"
+            :disabled="displayModeConfig.mode !== 'linear'"
           />
         </div>
         
-        <!-- 长度递增 -->
-        <div class="space-y-2">
+        <!-- 长度递增 (线性模式) -->
+        <div class="space-y-2" :class="{ 'opacity-50': displayModeConfig.mode !== 'linear' }">
           <label class="block text-sm font-medium text-white mb-1">
-            长度递增: <span class="text-blue-400">{{ rodConfig.lengthStep }}mm</span>
+            长度递增 (线性): <span class="text-blue-400">{{ rodConfig.lengthStep }}mm</span>
           </label>
           <input 
             v-model.number="rodConfig.lengthStep"
-            type="range" 
-            min="5" 
-            max="50" 
+            type="range" min="5" max="50" 
             class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
             @input="updateRodConfig"
+            :disabled="displayModeConfig.mode !== 'linear'"
           />
         </div>
         
-        <!-- 杆件直径 -->
+        <!-- 杆件直径 (所有模式通用) -->
         <div class="space-y-2">
           <label class="block text-sm font-medium text-white mb-1">
             杆件直径: <span class="text-blue-400">{{ rodConfig.diameter }}mm</span>
           </label>
           <input 
             v-model.number="rodConfig.diameter"
-            type="range" 
-            min="1" 
-            max="20" 
-            step="0.1"
+            type="range" min="1" max="20" step="0.1"
             class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-            @input="updateRodConfig"
+            @input="updateRodConfig" 
           />
         </div>
       </div>
@@ -303,7 +408,8 @@ const emit = defineEmits([
   'reset-simulation',
   'export-resonance-data',
   'select-rod',
-  'update-audio-settings'
+  'update-audio-settings',
+  'update-display-mode'
 ])
 
 // 响应式数据
@@ -324,7 +430,22 @@ const excitationConfig = ref({
   type: 'sine',
   frequency: 100,
   amplitude: 1,
-  damping: 0.01
+  damping: 0.01,
+  timeScale: 1.0
+})
+
+// 新增：显示模式配置
+const displayModeConfig = ref({
+  mode: 'linear',
+  arrayGridX: 10,
+  arrayGridY: 10,
+  arrayHeightFunction: 'sine',
+  arrayBaseHeight: 20,
+  arrayAmplitude: 50,
+  arrayScaleFactor: 1.0,
+  sculptureType: 'spiral',
+  sculptureDensity: 'medium',
+  sculptureScale: 1.0
 })
 
 const isRunning = ref(false)
@@ -416,6 +537,35 @@ function updateRodStatus(status) {
 function setRunningState(running) {
   isRunning.value = running
 }
+
+// 新增：更新显示模式配置
+function updateDisplayModeConfig() {
+  const configToSend = { mode: displayModeConfig.value.mode };
+  if (displayModeConfig.value.mode === 'linear') {
+    // 线性模式目前没有独立于rodConfig的参数，但可以预留
+  } else if (displayModeConfig.value.mode === 'array') {
+    configToSend.gridX = displayModeConfig.value.arrayGridX;
+    configToSend.gridY = displayModeConfig.value.arrayGridY;
+    configToSend.heightFunction = displayModeConfig.value.arrayHeightFunction;
+    configToSend.baseHeight = displayModeConfig.value.arrayBaseHeight;
+    configToSend.amplitude = displayModeConfig.value.arrayAmplitude;
+    configToSend.scaleFactor = displayModeConfig.value.arrayScaleFactor;
+  } else if (displayModeConfig.value.mode === 'sculpture') {
+    configToSend.type = displayModeConfig.value.sculptureType;
+    configToSend.density = displayModeConfig.value.sculptureDensity;
+    configToSend.scale = displayModeConfig.value.sculptureScale;
+  }
+  emit('update-display-mode', configToSend)
+}
+
+// 监听 displayModeConfig 的变化，以便在模式更改时自动触发更新
+watch(() => displayModeConfig.value.mode, () => {
+  updateDisplayModeConfig();
+});
+
+watch(displayModeConfig, () => {
+    updateDisplayModeConfig();
+}, { deep: true });
 
 defineExpose({
   updateRodStatus,

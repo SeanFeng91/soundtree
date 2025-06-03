@@ -5,6 +5,7 @@
 
 import { MaterialProperties } from './materials.js';
 import { VibrationCalculator } from './vibration-calc.js';
+import { getArrayHeightFunction } from './math-functions.js'; // 导入高度函数获取器
 
 // 创建模块实例
 const materialProperties = new MaterialProperties();
@@ -32,11 +33,27 @@ class RodManager {
         this.currentMaterial = 'steel';
         this.excitationType = 'sine'; // 添加激励类型
         
-        // 杆件配置
-        this.rodCount = 10;
-        this.startLength = 20;  // mm
-        this.lengthStep = 10;   // mm
-        this.diameter = 2.0;    // mm
+        // 杆件配置 (这些现在作为基础/线性模式的默认值)
+        this.baseRodConfig = {
+            count: 10,
+            startLength: 20,  // mm
+            lengthStep: 10,   // mm
+            diameter: 2.0     // mm
+        };
+        
+        // 新增：显示模式配置
+        this.displayModeConfig = {
+            mode: 'linear',
+            // 阵列参数
+            gridX: 10,
+            gridY: 10,
+            heightFunction: 'sine',
+            baseHeight: 20,
+            amplitude: 50,
+            scaleFactor: 1.0,
+            // 雕塑参数 (待定)
+            sculptureType: 'spiral' 
+        };
     }
 
     /**
@@ -67,16 +84,22 @@ class RodManager {
      */
     setupScene() {
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x1f2937);
+        // 将背景颜色改为明亮的白色
+        this.scene.background = new THREE.Color(0xf0f0f0); 
 
         const aspect = this.container.clientWidth / this.container.clientHeight;
-        this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
-        this.camera.position.set(0, 0.1, 0.3);
+        this.camera = new THREE.PerspectiveCamera(60, aspect, 0.01, 1000); // 调整FOV和near plane
+        this.camera.position.set(0, 0.1, 0.3); // 初始相机位置，会被updateCameraView覆盖
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        // 添加色调映射以获得更真实的 HDR 效果
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.0;
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace; // 正确的颜色空间
+
         this.container.appendChild(this.renderer.domElement);
     }
 
@@ -84,17 +107,30 @@ class RodManager {
      * 设置光照
      */
     setupLighting() {
-        const ambientLight = new THREE.AmbientLight(0x606060, 0.6);
+        // 环境光，提供基础亮度
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // 增强环境光
         this.scene.add(ambientLight);
 
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(1, 1, 1).normalize();
+        // 平行光，模拟太阳光，产生阴影
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2); // 增强平行光
+        directionalLight.position.set(5, 10, 7.5);
         directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048; // 提高阴影质量
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 50;
+        directionalLight.shadow.bias = -0.001; // 减少阴影痤疮
         this.scene.add(directionalLight);
+        
+        // 添加一个半球光，模拟天空和地面的反射光，使场景更柔和自然
+        const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.7);
+        hemisphereLight.position.set(0, 20, 0);
+        this.scene.add(hemisphereLight);
 
-        const pointLight = new THREE.PointLight(0x60a5fa, 0.5);
-        pointLight.position.set(0, 0.2, 0.2);
-        this.scene.add(pointLight);
+        // 可以考虑添加一些点光源或聚光灯来突出特定区域，但初期保持简单
+        // const pointLight = new THREE.PointLight(0xffffff, 0.5);
+        // pointLight.position.set(0, 5, 5);
+        // this.scene.add(pointLight);
     }
 
     /**
@@ -102,70 +138,67 @@ class RodManager {
      */
     createAllRods() {
         this.clearRods();
-        
+        console.log(`[RodManager.createAllRods] Mode: ${this.displayModeConfig.mode}`);
+
         const material = materialProperties.getMaterial(this.currentMaterial);
-        const spacing = 0.015; // 杆件间距 (m)
-        const startX = -(this.rodCount - 1) * spacing / 2;
+        const rodRadius = this.baseRodConfig.diameter / 2000; // mm to m, 通用直径
 
-        for (let i = 0; i < this.rodCount; i++) {
-            const length = (this.startLength + i * this.lengthStep) / 1000; // mm to m
-            const radius = this.diameter / 2000; // mm to m
-            const x = startX + i * spacing;
-
-            const rod = this.createSingleRod(length, radius, material.color);
-            rod.position.set(x, 0, 0);
-            rod.userData = {
-                index: i,
-                length: length,
-                radius: radius,
-                material: material,
-                naturalFrequencies: materialProperties.calculateAllModalFrequencies(
-                    length * 1000, this.diameter, material
-                )
-            };
-
-            this.scene.add(rod);
-            this.rods.push(rod);
-            this.originalPositions.push(this.storeOriginalPositions(rod));
+        switch (this.displayModeConfig.mode) {
+            case 'linear':
+                this.createLinearRods(material, rodRadius);
+                break;
+            case 'array':
+                this.createArrayRods(material, rodRadius);
+                break;
+            case 'sculpture':
+                this.createSculptureRods(material, rodRadius); // 占位
+                break;
+            default:
+                console.warn(`未知显示模式: ${this.displayModeConfig.mode}`);
+                this.createLinearRods(material, rodRadius); // 默认为线性
         }
 
         console.log(`[RodManager.createAllRods] 创建了 ${this.rods.length} 个杆件。`);
-        if (this.rods.length > 0) {
-            console.log('[RodManager.createAllRods] 第一个杆件位置:', this.rods[0].position);
-            console.log('[RodManager.createAllRods] 第一个杆件userData:', this.rods[0].userData);
-        }
-
-        this.updateCameraView();
+        this.updateCameraView(); // 确保相机视角适应新的杆件布局
     }
 
     /**
      * 创建单个杆件
      * @param {number} length - 长度 (m)
      * @param {number} radius - 半径 (m)
-     * @param {number} color - 颜色
+     * @param {number} color - 基础颜色 (会被金属材质覆盖部分效果)
      * @returns {THREE.Mesh} 杆件网格
      */
     createSingleRod(length, radius, color) {
-        const heightSegments = 32;
-        const geometry = new THREE.CylinderGeometry(radius, radius, length, 8, heightSegments);
+        const heightSegments = 16; // 适当减少段数以提高性能，但保持足够平滑
+        const radialSegments = 8; // 减少径向段数
+        const geometry = new THREE.CylinderGeometry(radius, radius, length, radialSegments, heightSegments);
         geometry.translate(0, length / 2, 0); // 底部固定
 
-        const material = new THREE.MeshPhongMaterial({ 
-            color: color, 
-            shininess: 80,
+        // 使用MeshStandardMaterial实现金属效果
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xB0B0B0,    // 银灰色 (0xC0C0C0)
+            metalness: 0.9,     // 金属度，接近1表示完全金属
+            roughness: 0.4,     // 粗糙度，0表示完全光滑镜面，1表示完全粗糙
             transparent: true,
-            opacity: 0.9
+            opacity: 0.95
         });
 
         const rod = new THREE.Mesh(geometry, material);
         rod.castShadow = true;
         rod.receiveShadow = true;
 
-        // 添加底座
-        const baseGeometry = new THREE.CylinderGeometry(radius * 1.5, radius * 1.5, radius * 0.5, 8);
-        const baseMaterial = new THREE.MeshPhongMaterial({ color: 0x444444 });
+        // 底座材质也调整一下
+        const baseGeometry = new THREE.CylinderGeometry(radius * 1.5, radius * 1.5, radius * 0.5, radialSegments);
+        const baseMaterial = new THREE.MeshStandardMaterial({
+            color: 0x666666, 
+            metalness: 0.5,
+            roughness: 0.6 
+        });
         const base = new THREE.Mesh(baseGeometry, baseMaterial);
         base.position.y = radius * 0.25;
+        base.castShadow = true;
+        base.receiveShadow = true;
         rod.add(base);
 
         return rod;
@@ -194,16 +227,43 @@ class RodManager {
     }
 
     /**
-     * 更新相机视角
+     * 更新相机视角以适应当前杆件布局
      */
     updateCameraView() {
-        if (this.rods.length > 0) {
-            const maxLength = Math.max(...this.rods.map(rod => rod.userData.length));
-            this.camera.position.set(0, maxLength * 0.8, maxLength * 1.2);
-            this.camera.lookAt(0, maxLength * 0.4, 0);
-            console.log('[RodManager.updateCameraView] 相机位置:', this.camera.position);
-            console.log('[RodManager.updateCameraView] 相机观察点 (target for lookAt): Vector3(0, ' + maxLength * 0.4 + ', 0)');
+        if (this.rods.length === 0) {
+            this.camera.position.set(0, 0.1, 0.3); // 默认位置
+            this.camera.lookAt(0, 0, 0);
+            return;
         }
+
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, maxY = -Infinity;
+        this.rods.forEach(rod => {
+            minX = Math.min(minX, rod.position.x);
+            maxX = Math.max(maxX, rod.position.x);
+            minZ = Math.min(minZ, rod.position.z);
+            maxZ = Math.max(maxZ, rod.position.z);
+            maxY = Math.max(maxY, rod.userData.length); // 杆件的最大长度作为Y轴的参考
+        });
+
+        const centerX = (minX + maxX) / 2;
+        const centerZ = (minZ + maxZ) / 2;
+        const extentX = maxX - minX;
+        const extentZ = maxZ - minZ;
+        
+        const maxExtent = Math.max(extentX, extentZ, maxY); // 考虑杆件长度
+
+        // 基于最大范围调整相机位置
+        // 简单的启发式方法：相机距离与场景范围成正比
+        const camX = centerX;
+        const camY = maxY * 1.5 + maxExtent * 0.5; // 抬高相机，基于杆件高度和整体范围
+        const camZ = centerZ + maxExtent * 1.5;    // 拉远相机
+
+        this.camera.position.set(camX, camY, camZ);
+        this.camera.lookAt(centerX, maxY / 3, centerZ); // 观察点调整为阵列中心偏上
+
+        console.log('[RodManager.updateCameraView] Updated camera for new layout.');
+        console.log('[RodManager.updateCameraView] Camera position:', this.camera.position);
+        console.log('[RodManager.updateCameraView] Camera lookAt:', centerX, maxY / 3, centerZ);
     }
 
     /**
@@ -337,9 +397,40 @@ class RodManager {
      */
     updateVisualization(data) {
         if (typeof window !== 'undefined' && window.visualization) {
+            
+            const rodCountThreshold = 10050; 
+            if (this.rods.length > rodCountThreshold) {
+                console.warn(`[RodManager.updateVisualization] Rod count (${this.rods.length}) exceeds threshold (${rodCountThreshold}). Temporarily pausing waveform and frequency plot updates for performance.`);
+                
+                if (data.frequencyData.length > 0) {
+                    const resonanceDataForPlot = data.frequencyData.map(freqDataItem => {
+                        const actualRodIndex = freqDataItem.rodIndex - 1; // rodIndex from frequencyData is 1-based
+                        let rodLengthMm;
+
+                        if (this.rods[actualRodIndex] && this.rods[actualRodIndex].userData && typeof this.rods[actualRodIndex].userData.length === 'number') {
+                            rodLengthMm = this.rods[actualRodIndex].userData.length * 1000; // userData.length is in meters
+                        } else {
+                            console.warn(`[RodManager.updateVisualization] Could not get length for rod index ${actualRodIndex} for resonance plot. Using fallback/default length.`);
+                            if (this.displayModeConfig.mode === 'linear') {
+                                rodLengthMm = this.baseRodConfig.startLength + actualRodIndex * this.baseRodConfig.lengthStep;
+                            } else {
+                                // For array/sculpture, if specific rod data is missing, use a default or configured base height.
+                                rodLengthMm = this.displayModeConfig.baseHeight || this.baseRodConfig.startLength; 
+                            }
+                        }
+                        return {
+                            length: rodLengthMm,
+                            naturalFreq: freqDataItem.frequency,
+                            isResonant: freqDataItem.isResonant
+                        };
+                    });
+                    window.visualization.updateResonancePlot(resonanceDataForPlot, this.excitationFreq);
+                }
+                return; 
+            }
+
             // 为每个杆件单独更新波形数据
             if (data.waveformData.length > 0) {
-                // 按杆件分组波形数据
                 const rodWaveformMap = new Map();
                 data.waveformData.forEach(point => {
                     if (!rodWaveformMap.has(point.rodIndex)) {
@@ -351,7 +442,6 @@ class RodManager {
                     });
                 });
                 
-                // 为每个杆件更新波形数据
                 rodWaveformMap.forEach((waveformPoints, rodIndex) => {
                     window.visualization.updateWaveformPlot(waveformPoints, rodIndex);
                 });
@@ -364,12 +454,27 @@ class RodManager {
             
             // 更新共振分析图表
             if (data.frequencyData.length > 0) {
-                const resonanceData = data.frequencyData.map(rod => ({
-                    length: (this.startLength + (rod.rodIndex - 1) * this.lengthStep), // mm，使用rodIndex-1因为rodIndex从1开始
-                    naturalFreq: rod.frequency,
-                    isResonant: rod.isResonant
-                }));
-                window.visualization.updateResonancePlot(resonanceData, this.excitationFreq);
+                 const resonanceDataForPlot = data.frequencyData.map(freqDataItem => {
+                    const actualRodIndex = freqDataItem.rodIndex - 1; // rodIndex from frequencyData is 1-based
+                    let rodLengthMm;
+
+                    if (this.rods[actualRodIndex] && this.rods[actualRodIndex].userData && typeof this.rods[actualRodIndex].userData.length === 'number') {
+                        rodLengthMm = this.rods[actualRodIndex].userData.length * 1000; // userData.length is in meters
+                    } else {
+                        console.warn(`[RodManager.updateVisualization] Could not get length for rod index ${actualRodIndex} for resonance plot. Using fallback/default length.`);
+                         if (this.displayModeConfig.mode === 'linear') {
+                            rodLengthMm = this.baseRodConfig.startLength + actualRodIndex * this.baseRodConfig.lengthStep;
+                        } else {
+                            rodLengthMm = this.displayModeConfig.baseHeight || this.baseRodConfig.startLength; 
+                        }
+                    }
+                    return {
+                        length: rodLengthMm,
+                        naturalFreq: freqDataItem.frequency,
+                        isResonant: freqDataItem.isResonant
+                    };
+                });
+                window.visualization.updateResonancePlot(resonanceDataForPlot, this.excitationFreq);
             }
         }
     }
@@ -426,32 +531,140 @@ class RodManager {
     }
 
     /**
-     * 设置杆件参数
-     * @param {Object} params - 参数对象
+     * 设置基础杆件参数 (通常用于线性模式或作为其他模式的默认直径等)
+     * @param {Object} params - 参数对象 { count, startLength, lengthStep, diameter }
      */
-    setRodParams(params) {
-        let needsRecreate = false;
-
-        if (params.count !== undefined && params.count !== this.rodCount) {
-            this.rodCount = params.count;
-            needsRecreate = true;
-        }
-        if (params.startLength !== undefined && params.startLength !== this.startLength) {
-            this.startLength = params.startLength;
-            needsRecreate = true;
-        }
-        if (params.lengthStep !== undefined && params.lengthStep !== this.lengthStep) {
-            this.lengthStep = params.lengthStep;
-            needsRecreate = true;
-        }
-        if (params.diameter !== undefined && params.diameter !== this.diameter) {
-            this.diameter = params.diameter;
-            needsRecreate = true;
-        }
-
-        if (needsRecreate) {
+    setBaseRodParams(params) {
+        if (params.count !== undefined) this.baseRodConfig.count = params.count;
+        if (params.startLength !== undefined) this.baseRodConfig.startLength = params.startLength;
+        if (params.lengthStep !== undefined) this.baseRodConfig.lengthStep = params.lengthStep;
+        if (params.diameter !== undefined) this.baseRodConfig.diameter = params.diameter;
+        // 当基础参数改变时，如果当前是线性模式，则需要重新创建杆件
+        if (this.displayModeConfig.mode === 'linear') {
             this.createAllRods();
         }
+    }
+
+    /**
+     * 设置显示模式和相关参数
+     * @param {Object} config - 显示模式配置
+     */
+    setDisplayMode(config) {
+        console.log('[RodManager.setDisplayMode]', config);
+        this.displayModeConfig = { ...this.displayModeConfig, ...config };
+        // 模式或其参数更改后，需要重新创建所有杆件
+        // this.createAllRods(); // createAllRods 会在 App.vue 中被显式调用
+    }
+
+    /**
+     * 创建线性排列的杆件 (现有逻辑)
+     */
+    createLinearRods(material, rodRadius) {
+        const spacing = 0.015; // 杆件间距 (m)
+        const startX = -(this.baseRodConfig.count - 1) * spacing / 2;
+
+        for (let i = 0; i < this.baseRodConfig.count; i++) {
+            const length = (this.baseRodConfig.startLength + i * this.baseRodConfig.lengthStep) / 1000; // mm to m
+            const x = startX + i * spacing;
+
+            const rod = this.createSingleRod(length, rodRadius, material.color);
+            rod.position.set(x, 0, 0);
+            rod.userData = {
+                index: i,
+                length: length,
+                radius: rodRadius,
+                material: material,
+                naturalFrequencies: materialProperties.calculateAllModalFrequencies(
+                    length * 1000, this.baseRodConfig.diameter, material
+                )
+            };
+            this.scene.add(rod);
+            this.rods.push(rod);
+            this.originalPositions.push(this.storeOriginalPositions(rod));
+        }
+    }
+
+    /**
+     * 创建函数阵列排列的杆件
+     */
+    createArrayRods(material, rodRadius) {
+        const { 
+            gridX, gridY, 
+            heightFunction: funcName, 
+            baseHeight: baseHeightMm, 
+            amplitude: amplitudeMm, 
+            scaleFactor 
+        } = this.displayModeConfig;
+
+        const heightFunc = getArrayHeightFunction(funcName);
+        if (!heightFunc) {
+            console.error(`[RodManager.createArrayRods] 未找到高度函数: ${funcName}`);
+            this.createLinearRods(material, rodRadius); // 回退到线性模式
+            alert(`错误：未找到指定的高度函数 (${funcName})，已回退到线性排列。`);
+            return;
+        }
+
+        console.log(`[RodManager.createArrayRods] Creating ${gridX}x${gridY} array with function: ${funcName}`);
+
+        const spacing = 0.02; // 杆件在X-Z平面上的间距 (m)
+        const startX = -(gridX - 1) * spacing / 2;
+        const startZ = -(gridY - 1) * spacing / 2;
+        let rodGlobalIndex = 0;
+
+        for (let iy = 0; iy < gridY; iy++) { // iy 对应 Z 轴
+            for (let ix = 0; ix < gridX; ix++) { // ix 对应 X 轴
+                const posX = startX + ix * spacing;
+                const posZ = startZ + iy * spacing;
+
+                // func expects x, y as grid indices, scaleFactor, gridX, gridY
+                const normalizedHeight = heightFunc(ix, iy, scaleFactor, gridX, gridY);
+                
+                // 将归一化高度 (-1 to 1 or 0 to 1) 映射到实际杆件长度 (mm)
+                // 对于返回 -1 to 1 的函数 (sine, peak, ripple)
+                // 对于返回 0 to 1 的函数 (gaussian, linear_slope)
+                let rodLengthMm;
+                if (funcName === 'gaussian' || funcName === 'linear_slope') {
+                    rodLengthMm = baseHeightMm + normalizedHeight * amplitudeMm;
+                } else {
+                    rodLengthMm = baseHeightMm + (normalizedHeight * 0.5 + 0.5) * amplitudeMm; // 转换到0-1范围再应用振幅
+                }
+
+                // 确保杆件长度在合理范围内 (例如，最小1mm)
+                rodLengthMm = Math.max(1, rodLengthMm);
+                const rodLengthM = rodLengthMm / 1000; // mm to m
+
+                const rod = this.createSingleRod(rodLengthM, rodRadius, material.color);
+                rod.position.set(posX, 0, posZ); // Y轴是杆件的向上方向，所以杆件底部在Y=0
+                
+                rod.userData = {
+                    index: rodGlobalIndex++,
+                    gridX: ix,
+                    gridY: iy,
+                    length: rodLengthM,
+                    radius: rodRadius,
+                    material: material,
+                    naturalFrequencies: materialProperties.calculateAllModalFrequencies(
+                        rodLengthMm, // 使用mm为单位的长度进行计算
+                        this.baseRodConfig.diameter, 
+                        material
+                    )
+                };
+
+                this.scene.add(rod);
+                this.rods.push(rod);
+                this.originalPositions.push(this.storeOriginalPositions(rod));
+            }
+        }
+    }
+
+    /**
+     * 创建空间雕塑模式的杆件 (占位)
+     */
+    createSculptureRods(material, rodRadius) {
+        console.warn("[RodManager.createSculptureRods] 雕塑模式创建逻辑待实现。");
+        // 临时创建一个线性排列作为占位符
+        this.createLinearRods(material, rodRadius);
+        alert("空间雕塑模式正在开发中，将临时显示线性排列。");
     }
 
     /**

@@ -17,14 +17,22 @@ const is3DInitialized = ref(false)
 const selectedRodIndex = ref(4)
 const audioEnabled = ref(true)
 const currentConfig = ref({
+  // 基础杆件参数 (主要用于线性模式或作为阵列/雕塑模式的默认值)
   rodCount: 10,
-  startLength: 20,
-  lengthStep: 10,
-  diameter: 5,
+  startLength: 20, // mm
+  lengthStep: 10,  // mm
+  diameter: 5,     // mm
+  // 材料
   material: 'steel',
+  // 激励
+  excitationType: 'sine',
   frequency: 100,
   amplitude: 1,
-  damping: 0.01
+  damping: 0.01,
+  timeScale: 1.0,
+  // 新增：显示模式特定配置
+  displayMode: 'linear',
+  displayParams: {} // 用于存储特定模式的参数，如 gridX, gridY, heightFunction等
 })
 
 // 模拟引擎实例（稍后从utils中导入）
@@ -126,7 +134,8 @@ function handleAudioFrequencyChange(frequency) {
 function handleRodConfigUpdate(config) {
   currentConfig.value = { ...currentConfig.value, ...config }
   if (rodManager) {
-    rodManager.setRodParams(config)
+    // 传递基础杆件参数，RodManager内部会根据显示模式决定如何使用它们
+    rodManager.setBaseRodParams(config) 
   }
 }
 
@@ -303,6 +312,38 @@ function handleAudioSettings(enabled) {
   }
 }
 
+// 新增：处理显示模式更新
+function handleDisplayModeUpdate(config) {
+  console.log('App.vue: Display mode config updated', config);
+  currentConfig.value.displayMode = config.mode;
+  currentConfig.value.displayParams = { ...config }; // 存储完整模式参数
+  
+  if (rodManager) {
+    rodManager.setDisplayMode(config); // 将完整模式配置传递给RodManager
+  }
+  
+  // 如果模式从非线性切换到线性，或从线性切换到非线性，可能需要重置或特殊处理
+  // 例如，如果切换到线性模式，确保rodConfig中的count, startLength等参数被应用
+  if (config.mode === 'linear') {
+    if (rodManager) {
+      // 确保线性模式使用rodConfig中的参数
+      rodManager.setBaseRodParams({
+        count: currentConfig.value.rodCount,
+        startLength: currentConfig.value.startLength,
+        lengthStep: currentConfig.value.lengthStep,
+        diameter: currentConfig.value.diameter
+      });
+      rodManager.createAllRods(); // 重新创建杆件
+    }
+  } else {
+    // 对于阵列或雕塑模式，杆件数量和长度由模式参数决定
+    // RodManager的setDisplayMode应该处理这些
+    if (rodManager) {
+        rodManager.createAllRods(); // 重新创建杆件
+    }
+  }
+}
+
 // 工具方法
 function getMaterialName(materialType) {
   const materialNames = {
@@ -415,6 +456,7 @@ function convertToCSV(data) {
             @export-resonance-data="handleExportResonanceData"
             @select-rod="handleRodSelection"
             @update-audio-settings="handleAudioSettings"
+            @update-display-mode="handleDisplayModeUpdate"
           />
           
           <!-- 音频播放器 -->
