@@ -88,6 +88,8 @@ async function initializeVibrationEngine() {
     // 为AudioPlayer组件设置回调（在组件挂载后）
     if (audioPlayer.value) {
       audioPlayer.value.setFrequencyChangeCallback(handleAudioFrequencyChange)
+      // 设置window.audioPlayer引用供RodManager访问
+      window.audioPlayer = audioPlayer.value
     }
     
     console.log('✓ 音频生成器初始化成功')
@@ -141,17 +143,39 @@ function handleExcitationConfigUpdate(config) {
     rodManager.setExcitationParams(config)
   }
   
-  // 只有在音频开启且是正弦波激励时才更新音频频率
-  if (audioEnabled.value && audioGenerator && audioGenerator.isPlaying && config.type === 'sine') {
-    audioGenerator.setFrequency(config.frequency)
-  } else if (audioEnabled.value && audioGenerator && audioGenerator.isPlaying && config.type === 'sweep') {
-    // 如果正在播放且切换到扫频，重新开始扫频
-    audioGenerator.stop()
-    audioGenerator.startFrequencySweep(20, 2000, 10, 0.1)
+  // 音频频率更新逻辑
+  if (audioEnabled.value && audioGenerator && audioGenerator.isPlaying) {
+    if (config.type === 'sine') {
+      // 正弦波激励：直接更新频率
+      audioGenerator.setFrequency(config.frequency)
+    } else if (config.type === 'sweep') {
+      // 扫频激励：重新开始扫频
+      audioGenerator.stop()
+      audioGenerator.startFrequencySweep(20, 2000, 10, 0.1)
+    } else if (config.type === 'audio') {
+      // 音频文件激励：不需要手动设置频率，由音频文件本身决定
+      // 如果没有音频文件，停止当前播放
+      if (!audioPlayer.value || !audioPlayer.value.hasAudioFile()) {
+        audioGenerator.stop()
+      }
+    }
   }
 }
 
 function handleToggleSimulation(running) {
+  // 如果要启动模拟，且激励类型是音频文件，需要检查是否已上传音频文件
+  if (running && currentConfig.value.type === 'audio') {
+    // 检查AudioPlayer组件是否有音频文件
+    if (!audioPlayer.value || !audioPlayer.value.hasAudioFile()) {
+      alert('请先上传音频文件后再开始模拟！');
+      // 重置控制面板状态
+      if (vibrationControls.value) {
+        vibrationControls.value.setRunningState(false);
+      }
+      return;
+    }
+  }
+  
   isSimulationRunning.value = running
   if (rodManager) {
     rodManager.togglePlayPause()
@@ -192,16 +216,42 @@ function handleResetSimulation() {
     vibrationControls.value.setRunningState(false)
   }
   
-  // 停止音频播放
+  // 停止所有音频播放
   if (audioGenerator) {
     audioGenerator.stop()
   }
+  
+  // 停止AudioPlayer组件的音频播放
+  if (audioPlayer.value) {
+    audioPlayer.value.stopAudioExcitation()
+  }
 }
 
-function handleCalculateResonance() {
-  // 计算共振频率
-  console.log('计算共振频率')
-  // 实现共振计算逻辑
+function handleExportResonanceData() {
+  console.log('导出共振数据')
+  try {
+    // 获取共振分析数据
+    const resonanceData = generateResonanceData()
+    
+    // 创建CSV格式的数据
+    const csvContent = convertToCSV(resonanceData)
+    
+    // 创建下载链接
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `resonance_analysis_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    console.log('✓ 共振数据导出成功')
+  } catch (error) {
+    console.error('共振数据导出失败:', error)
+    alert('导出失败：' + error.message)
+  }
 }
 
 function handleRodSelection(index) {
@@ -209,6 +259,20 @@ function handleRodSelection(index) {
   if (rodManager) {
     rodManager.setSelectedRodIndex(index)
   }
+}
+
+function handleRodSelectionChange() {
+  // 处理波形图中的杆件选择变化
+  if (rodManager) {
+    rodManager.setSelectedRodIndex(selectedRodIndex.value)
+  }
+  
+  // 更新波形图显示
+  if (visualization) {
+    visualization.updateWaveformForRod(selectedRodIndex.value)
+  }
+  
+  console.log(`切换到杆件 ${selectedRodIndex.value + 1}`)
 }
 
 function handleAudioSettings(enabled) {
@@ -250,6 +314,80 @@ function getMaterialName(materialType) {
   }
   return materialNames[materialType] || '未知'
 }
+
+function getRodLength(index) {
+  // 计算指定杆件的长度
+  return currentConfig.value.startLength + (index * currentConfig.value.lengthStep)
+}
+
+function generateResonanceData() {
+  // 生成共振分析数据
+  const data = []
+  const { MaterialProperties } = window.MaterialProperties || {}
+  
+  if (!MaterialProperties) {
+    throw new Error('材料属性模块未加载')
+  }
+  
+  const material = MaterialProperties.get(currentConfig.value.material)
+  const excitationFreq = currentConfig.value.frequency
+  const tolerance = 0.03 // ±3%容差
+  
+  for (let i = 0; i < currentConfig.value.rodCount; i++) {
+    const length = getRodLength(i) / 1000 // 转换为米
+    const diameter = currentConfig.value.diameter / 1000 // 转换为米
+    
+    // 计算第一阶固有频率 (杆件一端固定，一端自由)
+    const naturalFreq = (1.875 * 1.875 / (2 * Math.PI)) * 
+      Math.sqrt((material.youngModulus * 1e9 * Math.PI * Math.pow(diameter/2, 4)) / 
+      (material.density * Math.PI * Math.pow(diameter/2, 2) * Math.pow(length, 4)))
+    
+    // 判断是否接近共振
+    const freqDiff = Math.abs(naturalFreq - excitationFreq) / excitationFreq
+    const isResonant = freqDiff <= tolerance
+    
+    data.push({
+      rodIndex: i + 1,
+      length: getRodLength(i),
+      naturalFrequency: naturalFreq.toFixed(2),
+      excitationFrequency: excitationFreq,
+      frequencyDifference: (freqDiff * 100).toFixed(2),
+      isResonant: isResonant,
+      material: currentConfig.value.material,
+      diameter: currentConfig.value.diameter
+    })
+  }
+  
+  return data
+}
+
+function convertToCSV(data) {
+  // 转换为CSV格式
+  const headers = [
+    '杆件编号',
+    '长度(mm)', 
+    '固有频率(Hz)',
+    '激励频率(Hz)',
+    '频率差异(%)',
+    '是否共振',
+    '材料',
+    '直径(mm)'
+  ]
+  
+  const csvHeaders = headers.join(',')
+  const csvRows = data.map(row => [
+    row.rodIndex,
+    row.length,
+    row.naturalFrequency,
+    row.excitationFrequency,
+    row.frequencyDifference,
+    row.isResonant ? '是' : '否',
+    row.material,
+    row.diameter
+  ].join(','))
+  
+  return [csvHeaders, ...csvRows].join('\n')
+}
 </script>
 
 <template>
@@ -262,10 +400,10 @@ function getMaterialName(materialType) {
 
     <!-- 主体内容 -->
     <main class="container mx-auto px-4 pb-8">
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
         
         <!-- 左侧控制面板 -->
-        <div class="lg:col-span-1 space-y-6">
+        <div class="xl:col-span-1 space-y-6">
           <!-- 振动控制 -->
           <VibrationControls
             ref="vibrationControls"
@@ -274,7 +412,7 @@ function getMaterialName(materialType) {
             @update-excitation-config="handleExcitationConfigUpdate"
             @toggle-simulation="handleToggleSimulation"
             @reset-simulation="handleResetSimulation"
-            @calculate-resonance="handleCalculateResonance"
+            @export-resonance-data="handleExportResonanceData"
             @select-rod="handleRodSelection"
             @update-audio-settings="handleAudioSettings"
           />
@@ -284,7 +422,7 @@ function getMaterialName(materialType) {
         </div>
 
         <!-- 右侧可视化区域 -->
-        <div class="lg:col-span-2 space-y-6">
+        <div class="xl:col-span-2 space-y-6 max-w-none">
           <!-- 3D可视化 -->
           <div class="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 p-4">
             <h3 class="text-lg font-semibold text-white mb-4">3D振动可视化</h3>
@@ -307,10 +445,25 @@ function getMaterialName(materialType) {
           </div>
 
           <!-- 图表可视化 -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <!-- 波形图 -->
             <div class="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 p-4">
-              <h4 class="text-md font-medium text-white mb-3">振动波形</h4>
+              <div class="flex justify-between items-center mb-3">
+                <h4 class="text-md font-medium text-white">振动波形</h4>
+                <!-- 杆件选择控件 -->
+                <div class="flex items-center space-x-2">
+                  <label class="text-sm text-gray-300">杆件:</label>
+                  <select 
+                    v-model="selectedRodIndex"
+                    @change="handleRodSelectionChange"
+                    class="dark-select-options px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option v-for="i in currentConfig.rodCount" :key="i-1" :value="i-1">
+                      杆件{{ i }} ({{ getRodLength(i-1) }}mm)
+                    </option>
+                  </select>
+                </div>
+              </div>
               <div 
                 ref="waveformPlot"
                 id="waveform-plot"
@@ -381,6 +534,27 @@ function getMaterialName(materialType) {
 <style scoped>
 /* 组件特定样式 */
 .container {
-  max-width: 1400px;
+  max-width: 1600px; /* 增加最大宽度以适应超宽屏 */
+  margin: 0 auto; /* 确保居中 */
+}
+
+/* 确保在超宽屏幕上内容不会过度拉伸 */
+@media (min-width: 1920px) {
+  .container {
+    max-width: 1400px;
+  }
+}
+
+/* 针对4K屏幕的优化 */
+@media (min-width: 2560px) {
+  .container {
+    max-width: 1600px;
+  }
+}
+
+/* 为下拉菜单选项定义统一样式 */
+.dark-select-options option {
+  background-color: #2d3748; /* Tailwind CSS gray-800 */
+  color: #e2e8f0;           /* Tailwind CSS gray-200 */
 }
 </style>

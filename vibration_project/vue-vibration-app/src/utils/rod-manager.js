@@ -30,6 +30,7 @@ class RodManager {
         this.damping = 0.02;
         this.timeScale = 1.0;
         this.currentMaterial = 'steel';
+        this.excitationType = 'sine'; // 添加激励类型
         
         // 杆件配置
         this.rodCount = 10;
@@ -209,6 +210,41 @@ class RodManager {
      * 更新杆件变形
      */
     updateRodDeformation() {
+        // 如果激励类型是音频文件，但没有音频文件，则不应该有振动
+        if (this.excitationType === 'audio') {
+            // 检查是否有可用的音频文件
+            if (typeof window !== 'undefined' && window.audioPlayer && 
+                (!window.audioPlayer.hasAudioFile || !window.audioPlayer.hasAudioFile())) {
+                // 没有音频文件时，保持杆件静止
+                this.rods.forEach((rod, index) => {
+                    const originalPos = this.originalPositions[index];
+                    const positions = rod.geometry.attributes.position;
+                    
+                    // 恢复原始位置（无振动）
+                    for (let i = 0; i < positions.count; i++) {
+                        positions.setX(i, originalPos.getX(i));
+                        positions.setY(i, originalPos.getY(i));
+                        positions.setZ(i, originalPos.getZ(i));
+                    }
+                    
+                    positions.needsUpdate = true;
+                    rod.geometry.computeVertexNormals();
+                    
+                    // 恢复原始颜色
+                    const userData = rod.userData;
+                    rod.material.color.setHex(userData.material.color);
+                    rod.material.emissive.setHex(0x000000);
+                });
+                
+                // 清空可视化数据
+                if (typeof window !== 'undefined' && window.visualization) {
+                    window.visualization.clearWaveformPlot();
+                    window.visualization.clearFrequencyPlot();
+                }
+                return;
+            }
+        }
+        
         const visualizationData = {
             waveformData: [],
             frequencyData: []
@@ -246,14 +282,13 @@ class RodManager {
             const maxAmplitude = userData.length * 0.1; // 最大不超过杆长的10%
             const limitedAmplitude = Math.min(effectiveAmplitude, maxAmplitude);
             
-            // 收集可视化数据 - 选择用户指定的杆件作为代表
-            if (index === this.selectedRodIndex) {
-                // 添加波形数据点
-                visualizationData.waveformData.push({
-                    time: this.currentTime,
-                    amplitude: limitedAmplitude * Math.sin(2 * Math.PI * this.excitationFreq * this.currentTime - phaseDelay)
-                });
-            }
+            // 为每个杆件生成波形数据点
+            const currentAmplitude = limitedAmplitude * Math.sin(2 * Math.PI * this.excitationFreq * this.currentTime - phaseDelay);
+            visualizationData.waveformData.push({
+                rodIndex: index,
+                time: this.currentTime,
+                amplitude: currentAmplitude
+            });
             
             // 添加频率响应数据
             visualizationData.frequencyData.push({
@@ -277,8 +312,7 @@ class RodManager {
                 const modeShape = normalizedPosition * normalizedPosition; // 二次函数近似悬臂梁形状
                 
                 // 计算该点的位移（在X方向，模拟侧向弯曲）
-                const displacement = limitedAmplitude * modeShape * 
-                    Math.sin(2 * Math.PI * this.excitationFreq * this.currentTime - phaseDelay);
+                const displacement = currentAmplitude * modeShape;
 
                 // 应用位移（主要在X方向弯曲）
                 positions.setX(i, origX + displacement);
@@ -303,19 +337,24 @@ class RodManager {
      */
     updateVisualization(data) {
         if (typeof window !== 'undefined' && window.visualization) {
-            // 更新波形图 - 保持最近6秒的数据
+            // 为每个杆件单独更新波形数据
             if (data.waveformData.length > 0) {
-                if (!this.waveformBuffer) {
-                    this.waveformBuffer = [];
-                }
-                this.waveformBuffer.push(...data.waveformData);
+                // 按杆件分组波形数据
+                const rodWaveformMap = new Map();
+                data.waveformData.forEach(point => {
+                    if (!rodWaveformMap.has(point.rodIndex)) {
+                        rodWaveformMap.set(point.rodIndex, []);
+                    }
+                    rodWaveformMap.get(point.rodIndex).push({
+                        time: point.time,
+                        amplitude: point.amplitude
+                    });
+                });
                 
-                // 只保留最近6秒的数据
-                const timeWindow = 6.0;
-                const cutoffTime = this.currentTime - timeWindow;
-                this.waveformBuffer = this.waveformBuffer.filter(point => point.time >= cutoffTime);
-                
-                window.visualization.updateWaveformPlot(this.waveformBuffer);
+                // 为每个杆件更新波形数据
+                rodWaveformMap.forEach((waveformPoints, rodIndex) => {
+                    window.visualization.updateWaveformPlot(waveformPoints, rodIndex);
+                });
             }
             
             // 更新频率响应图
@@ -383,6 +422,7 @@ class RodManager {
         if (params.amplitude !== undefined) this.excitationAmp = params.amplitude;
         if (params.damping !== undefined) this.damping = params.damping;
         if (params.timeScale !== undefined) this.timeScale = params.timeScale;
+        if (params.type !== undefined) this.excitationType = params.type;
     }
 
     /**
@@ -451,6 +491,11 @@ class RodManager {
         this.currentTime = 0;
         this.isPlaying = false;
         this.createAllRods();
+        
+        // 清空波形数据
+        if (typeof window !== 'undefined' && window.visualization) {
+            window.visualization.clearWaveformData();
+        }
     }
 
     /**

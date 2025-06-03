@@ -78,7 +78,7 @@
           <label class="block text-sm font-medium text-white mb-1">材料类型</label>
           <select 
             v-model="materialConfig.type"
-            class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            class="dark-select-options w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             @change="updateMaterialConfig"
           >
             <option value="steel">钢材</option>
@@ -140,7 +140,7 @@
           <label class="block text-sm font-medium text-white mb-1">激励类型</label>
           <select 
             v-model="excitationConfig.type"
-            class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            class="dark-select-options w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             @change="updateExcitationConfig"
           >
             <option value="sine">正弦波</option>
@@ -235,10 +235,10 @@
         </button>
         
         <button 
-          @click="calculateResonance"
+          @click="exportResonanceData"
           class="px-4 py-2 rounded-lg font-medium transition-all duration-200 border-none cursor-pointer bg-green-500 hover:bg-green-600 text-white"
         >
-          📊 计算共振
+          📁 导出共振数据
         </button>
       </div>
       
@@ -258,32 +258,6 @@
         </div>
         <p class="text-xs text-gray-400 mt-1">
           {{ audioEnabled ? '启用音频反馈' : '静默模式' }}
-        </p>
-      </div>
-    </div>
-    
-    <!-- 波形显示选择 -->
-    <div class="mb-4">
-      <h4 class="text-md font-medium text-white mb-3">波形显示设置</h4>
-      <div class="bg-white/5 rounded-lg p-3">
-        <label class="block text-sm font-medium text-white mb-2">
-          选择显示杆件: <span class="text-blue-400">杆件{{ selectedRodIndex + 1 }}</span>
-        </label>
-        <select 
-          v-model.number="selectedRodIndex"
-          @change="updateSelectedRod"
-          class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option 
-            v-for="i in rodConfig.count" 
-            :key="i-1" 
-            :value="i-1"
-          >
-            杆件{{ i }} ({{ Math.round(rodConfig.startLength + (i-1) * rodConfig.lengthStep) }}mm)
-          </option>
-        </select>
-        <p class="text-xs text-gray-400 mt-1">
-          选择要在波形图中显示振动数据的杆件
         </p>
       </div>
     </div>
@@ -327,7 +301,7 @@ const emit = defineEmits([
   'update-excitation-config',
   'toggle-simulation',
   'reset-simulation',
-  'calculate-resonance',
+  'export-resonance-data',
   'select-rod',
   'update-audio-settings'
 ])
@@ -405,8 +379,8 @@ function resetSimulation() {
   emit('reset-simulation')
 }
 
-function calculateResonance() {
-  emit('calculate-resonance')
+function exportResonanceData() {
+  emit('export-resonance-data')
 }
 
 function updateSelectedRod() {

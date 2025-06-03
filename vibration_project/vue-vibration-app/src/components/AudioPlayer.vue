@@ -1,6 +1,6 @@
 <template>
   <div class="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 p-4">
-    <h3 class="text-lg font-semibold text-white mb-4">音频处理与播放</h3>
+    <h3 class="text-lg font-semibold text-white mb-4">音频文件处理</h3>
     
     <!-- 音频文件选择 -->
     <div class="mb-4">
@@ -14,8 +14,20 @@
       />
     </div>
     
+    <!-- 处理状态显示 -->
+    <div v-if="isProcessing" class="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+      <div class="flex items-center text-blue-400">
+        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400 mr-2"></div>
+        正在分析音频文件...
+      </div>
+    </div>
+    
     <!-- 音频信息显示 -->
-    <div v-if="audioInfo" class="mb-4 p-3 bg-white/5 rounded-lg">
+    <div v-if="audioInfo && audioBuffer" class="mb-4 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+      <div class="flex items-center text-green-400 mb-2">
+        <span class="mr-2">✓</span>
+        音频文件就绪
+      </div>
       <div class="text-sm text-gray-300 space-y-1">
         <div>文件: {{ audioInfo.filename }}</div>
         <div>时长: {{ audioInfo.duration?.toFixed(2) }}秒</div>
@@ -24,49 +36,8 @@
       </div>
     </div>
     
-    <!-- 播放控制 -->
-    <div class="flex gap-2 mb-4">
-      <button 
-        @click="processAudio"
-        :disabled="!selectedFile || isProcessing"
-        class="px-4 py-2 rounded-lg font-medium transition-all duration-200 border-none cursor-pointer bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {{ isProcessing ? '处理中...' : '处理音频' }}
-      </button>
-      
-      <button 
-        @click="togglePlayback"
-        :disabled="!audioBuffer"
-        class="px-4 py-2 rounded-lg font-medium transition-all duration-200 border-none cursor-pointer bg-gray-600 hover:bg-gray-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {{ isPlaying ? '⏸️ 暂停' : '▶️ 播放' }}
-      </button>
-      
-      <button 
-        @click="stopPlayback"
-        :disabled="!audioBuffer"
-        class="px-4 py-2 rounded-lg font-medium transition-all duration-200 border-none cursor-pointer bg-gray-600 hover:bg-gray-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        ⏹️ 停止
-      </button>
-    </div>
-    
-    <!-- 播放进度 -->
-    <div v-if="audioBuffer && duration > 0" class="mb-4">
-      <div class="flex justify-between text-sm text-gray-300 mb-1">
-        <span>{{ formatTime(currentTime) }}</span>
-        <span>{{ formatTime(duration) }}</span>
-      </div>
-      <div class="w-full bg-gray-700 rounded-full h-2 cursor-pointer" @click="seekTo">
-        <div 
-          class="bg-blue-500 h-2 rounded-full transition-all duration-100"
-          :style="{ width: progressPercentage + '%' }"
-        ></div>
-      </div>
-    </div>
-    
     <!-- 波形显示 -->
-    <div class="mb-4">
+    <div v-if="audioBuffer" class="mb-4">
       <div class="block text-sm font-medium text-white mb-2">波形显示</div>
       <div 
         ref="waveformContainer"
@@ -87,7 +58,7 @@
     </div>
     
     <!-- 频谱显示 -->
-    <div class="mb-4">
+    <div v-if="audioBuffer" class="mb-4">
       <div class="block text-sm font-medium text-white mb-2">频谱分析</div>
       <div 
         ref="spectrumContainer"
@@ -103,7 +74,7 @@
     <!-- 频率分析信息 -->
     <div v-if="isPlaying && isExcitationMode" class="mb-4 p-3 bg-white/5 rounded-lg">
       <div class="flex justify-between items-center mb-2">
-        <span class="text-sm font-medium text-white">音乐频率分析</span>
+        <span class="text-sm font-medium text-white">实时频率分析</span>
         <button 
           @click="resetFrequencyAnalysis"
           class="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded transition-colors"
@@ -125,6 +96,13 @@
           </span>
         </div>
       </div>
+    </div>
+    
+    <!-- 提示信息 -->
+    <div v-if="!audioBuffer && !isProcessing" class="p-3 bg-gray-500/10 border border-gray-500/20 rounded-lg">
+      <p class="text-sm text-gray-400">
+        💡 上传音频文件后，将自动进行分析处理。音频播放控制通过主控制面板的"开始/暂停"按钮进行。
+      </p>
     </div>
   </div>
 </template>
@@ -221,15 +199,22 @@ function initCanvas() {
   }
 }
 
-function handleFileChange(event) {
+// 处理文件选择
+async function handleFileChange(event) {
   const file = event.target.files[0]
-  if (file) {
-    selectedFile.value = file
-    audioInfo.value = {
-      filename: file.name,
-      size: file.size
-    }
+  if (!file) return
+  
+  selectedFile.value = file
+  audioInfo.value = {
+    filename: file.name,
+    size: file.size,
+    type: file.type
   }
+  
+  console.log('📁 选择音频文件:', file.name)
+  
+  // 自动处理音频文件
+  await processAudio()
 }
 
 async function processAudio() {
@@ -782,7 +767,12 @@ function getDetailedAudioAnalysis() {
 function resetFrequencyAnalysis() {
   frequencyHistory = []
   lastDominantFreq = 0
-  console.log('🔄 频率分析状态已重置')
+  console.log('�� 频率分析状态已重置')
+}
+
+// 检查是否有可用的音频文件
+function hasAudioFile() {
+  return !!(audioBuffer.value && selectedFile.value)
 }
 
 // 暴露方法供父组件调用
@@ -794,6 +784,7 @@ defineExpose({
   setFrequencyChangeCallback,
   getDominantFrequency,
   getDetailedAudioAnalysis,
-  resetFrequencyAnalysis
+  resetFrequencyAnalysis,
+  hasAudioFile
 })
 </script> 

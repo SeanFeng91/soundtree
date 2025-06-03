@@ -9,6 +9,10 @@ class Visualization {
         this.frequencyPlot = null;
         this.waveformContainer = 'waveform-plot';
         this.frequencyContainer = 'frequency-plot';
+        this.timeWindow = 10; // 10秒时间窗口
+        this.waveformData = new Map(); // 存储每个杆件的波形数据
+        this.currentSelectedRod = 0; // 当前选中的杆件
+        this.maxDataPoints = 1000; // 最大数据点数量，避免性能问题
     }
 
     /**
@@ -36,13 +40,16 @@ class Visualization {
                 title: '时间 (秒)',
                 color: '#d1d5db',
                 gridcolor: '#374151',
-                showgrid: true
+                showgrid: true,
+                range: [0, this.timeWindow], // 固定10秒时间窗口
+                autorange: false // 禁用自动范围调整
             },
             yaxis: {
                 title: '幅度',
                 color: '#d1d5db',
                 gridcolor: '#374151',
-                showgrid: true
+                showgrid: true,
+                autorange: true
             },
             plot_bgcolor: '#1f2937',
             paper_bgcolor: '#1f2937',
@@ -179,24 +186,99 @@ class Visualization {
     }
 
     /**
-     * 更新波形图
+     * 更新波形图 - 支持10秒滚动时间窗口
+     * @param {number} rodIndex - 杆件索引
      * @param {Array} waveformData - 波形数据 [{time, amplitude}]
      */
-    updateWaveformPlot(waveformData) {
-        if (!waveformData || waveformData.length === 0) {
+    updateWaveformPlot(waveformData, rodIndex = null) {
+        if (rodIndex !== null) {
+            // 如果指定了杆件索引，存储该杆件的数据
+            if (!this.waveformData.has(rodIndex)) {
+                this.waveformData.set(rodIndex, []);
+            }
+            
+            const rodData = this.waveformData.get(rodIndex);
+            
+            // 添加新数据点
+            if (Array.isArray(waveformData)) {
+                rodData.push(...waveformData);
+            } else if (waveformData && typeof waveformData === 'object') {
+                rodData.push(waveformData);
+            }
+            
+            // 获取当前时间
+            const currentTime = rodData.length > 0 ? Math.max(...rodData.map(d => d.time)) : 0;
+            
+            // 移除超出时间窗口的旧数据
+            const cutoffTime = currentTime - this.timeWindow;
+            const filteredData = rodData.filter(d => d.time >= cutoffTime);
+            this.waveformData.set(rodIndex, filteredData);
+            
+            // 限制数据点数量以避免性能问题
+            if (filteredData.length > this.maxDataPoints) {
+                const step = Math.ceil(filteredData.length / this.maxDataPoints);
+                const sampledData = filteredData.filter((_, i) => i % step === 0);
+                this.waveformData.set(rodIndex, sampledData);
+            }
+        }
+        
+        // 显示当前选中杆件的数据
+        this.displayCurrentRodWaveform();
+    }
+    
+    /**
+     * 显示当前选中杆件的波形数据
+     */
+    displayCurrentRodWaveform() {
+        const currentData = this.waveformData.get(this.currentSelectedRod) || [];
+        
+        if (currentData.length === 0) {
             this.clearWaveformPlot();
             return;
         }
-
-        const times = waveformData.map(d => d.time);
-        const amplitudes = waveformData.map(d => d.amplitude);
-
+        
+        const times = currentData.map(d => d.time);
+        const amplitudes = currentData.map(d => d.amplitude);
+        
+        // 计算当前时间窗口范围
+        const currentTime = times.length > 0 ? Math.max(...times) : 0;
+        const windowStart = Math.max(0, currentTime - this.timeWindow);
+        const windowEnd = windowStart + this.timeWindow;
+        
         const update = {
             x: [times],
             y: [amplitudes]
         };
-
+        
+        const layoutUpdate = {
+            'xaxis.range': [windowStart, windowEnd]
+        };
+        
         Plotly.restyle(this.waveformContainer, update, [0]);
+        Plotly.relayout(this.waveformContainer, layoutUpdate);
+    }
+    
+    /**
+     * 更新当前选中的杆件并切换波形显示
+     * @param {number} rodIndex - 杆件索引
+     */
+    updateWaveformForRod(rodIndex) {
+        this.currentSelectedRod = rodIndex;
+        this.displayCurrentRodWaveform();
+        console.log(`波形图切换到杆件 ${rodIndex + 1}`);
+    }
+    
+    /**
+     * 清空指定杆件的波形数据
+     * @param {number} rodIndex - 杆件索引，如果不指定则清空所有
+     */
+    clearWaveformData(rodIndex = null) {
+        if (rodIndex !== null) {
+            this.waveformData.delete(rodIndex);
+        } else {
+            this.waveformData.clear();
+        }
+        this.displayCurrentRodWaveform();
     }
 
     /**
